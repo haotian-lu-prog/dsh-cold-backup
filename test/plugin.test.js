@@ -161,6 +161,91 @@ test('collectStatus wires the injected readers and expands configured paths', as
   assert.equal(snapshot.config.refreshSeconds, 30)
 })
 
+// A first run must be distinguishable from a broken backup: the shipped default path does not
+// exist on a new machine, and the panel needs to say "not set up yet" instead of a bare red
+// "Problem". Health itself stays `bad` — this flag only drives the hint.
+test('collectStatus marks an untouched default config as not explicitly configured', async () => {
+  const snapshot = await collectStatus(
+    {
+      freshnessFile: DEFAULT_FRESHNESS_FILE,
+      failureFile: DEFAULT_FAILURE_FILE,
+      launchdLabel: '',
+      statusCommand: '',
+      staleAfterHours: 36,
+      refreshSeconds: 30,
+    },
+    {
+      home: '/home/u',
+      readFreshnessFile: async path => ({ path, missing: true, at: null }),
+      readFailureFile: async () => null,
+      readLaunchd: async () => null,
+      runStatusCommand: async () => null,
+    },
+  )
+  assert.equal(snapshot.explicitlyConfigured, false)
+  assert.equal(snapshot.level, 'bad', 'health must not be softened by the hint flag')
+  assert.deepEqual(snapshot.reasons.map(r => r.code), ['freshness-missing'])
+})
+
+// The counterpart, and the case that caught a bug in the first attempt: someone who simply
+// follows the convention and never opens the settings form still has an untouched default config.
+// The panel must NOT show the setup hint for them, which is why the hint also requires
+// `freshness.missing` — this test pins the snapshot shape that condition reads.
+test('an untouched default config with an existing file reports not-explicit but not missing', async () => {
+  const snapshot = await collectStatus(
+    {
+      freshnessFile: DEFAULT_FRESHNESS_FILE,
+      failureFile: DEFAULT_FAILURE_FILE,
+      launchdLabel: '',
+      statusCommand: '',
+      staleAfterHours: 36,
+      refreshSeconds: 30,
+    },
+    {
+      home: '/home/u',
+      now: 10 * HOUR,
+      readFreshnessFile: async path => ({ path, missing: false, at: 9 * HOUR }),
+      readFailureFile: async () => null,
+      readLaunchd: async () => null,
+      runStatusCommand: async () => null,
+    },
+  )
+  assert.equal(snapshot.explicitlyConfigured, false)
+  assert.equal(snapshot.freshness.missing, false)
+  assert.equal(snapshot.level, 'ok')
+})
+
+test('collectStatus treats any non-default source as explicitly configured', async () => {
+  const base = {
+    freshnessFile: DEFAULT_FRESHNESS_FILE,
+    failureFile: DEFAULT_FAILURE_FILE,
+    launchdLabel: '',
+    statusCommand: '',
+    staleAfterHours: 36,
+    refreshSeconds: 30,
+  }
+  const deps = {
+    home: '/home/u',
+    readFreshnessFile: async path => ({ path, missing: true, at: null }),
+    readFailureFile: async () => null,
+    readLaunchd: async () => null,
+    runStatusCommand: async () => null,
+  }
+  for (const override of [
+    { freshnessFile: '/custom/last-ok' },
+    { failureFile: '/custom/failures' },
+    { launchdLabel: 'com.example.backup' },
+    { statusCommand: 'true' },
+  ]) {
+    const snapshot = await collectStatus({ ...base, ...override }, deps)
+    assert.equal(
+      snapshot.explicitlyConfigured,
+      true,
+      `expected explicitlyConfigured for ${JSON.stringify(override)}`,
+    )
+  }
+})
+
 // The Harness indexes the client module table by PACKAGE NAME, so these four must agree or the
 // Client half silently never loads. This is exactly how a sibling plugin broke on 0.2.x.
 test('the package name, patch id, ENTRY_ID and client module id all agree', async () => {

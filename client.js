@@ -232,7 +232,14 @@ window.__ModuleLoader__.load({
             ],
           }),
 
-          data?.level === 'unknown'
+          // First run: the shipped default path does not exist yet, so a bare red "Problem" would
+          // read as "this plugin is broken". Show the setup hint only when that is genuinely the
+          // situation — untouched defaults AND the default file missing. Someone who simply uses
+          // the convention without ever opening the settings form must NOT see it (their file is
+          // there), and neither must someone who configured a path that later went missing (they
+          // get the precise reason instead).
+          data && (data.level === 'unknown'
+            || (data.explicitlyConfigured === false && data.freshness?.missing === true))
             ? jsx('p', { className: 'dshBackupIntro', children: t('notConfigured') })
             : null,
 

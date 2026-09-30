@@ -20,7 +20,7 @@
   成功时间戳文件 / 失败日志 / `launchctl` / 可选状态命令，归一成 `ok|warn|bad|unknown`
   ＋机器可读的 `reasons`，在 `/dsh-dev-backup/status` 上出 JSON；Client 半侧轮询并画面板（中英双语）。
 - 本地验证：
-  - `npm test` → **16/16 通过**（含 Client 半侧用 stub 的 `__ModuleLoader__` 真实加载、
+  - `npm test` → **19/19 通过**（含 Client 半侧用 stub 的 `__ModuleLoader__` 真实加载、
     四者同名一致性、zh/en 字典键集一致）
   - **端到端通过（真实 DSH 0.2.0-rc.2）**：隔离 `DSH_HOME` + `--from-default-profile web`
     建 profile，`dsh plugin add <本地目录>` 装成 link，启动无 error/warn；证据见
@@ -72,6 +72,14 @@
   - 年龄门槛：仓库建于 `2026-09-30T08:59:35Z` → **`2026-10-01T08:59:35Z` 之后**才能提 PR。
 - **CI 已补齐**（本轮新增）：`.github/workflows/conventions.yml`（与工作区模板逐字节一致）
   与 `.github/workflows/publish.yml`（trusted publishing 发布流水线）。
+- **首次运行体验修正**（本轮）：冷备约定的默认路径在陌生机器上**本来就不存在**，
+  于是新装的人一打开设置就看到红色「有问题 / 状态文件不存在」——读起来像"插件坏了"。
+  现在 Host 半侧多返回一个 `explicitlyConfigured`（用户是否真的指过任何来源），
+  面板只在「默认配置**且**默认文件确实缺失」时才显示「尚未配置」引导。
+  - **健康判定刻意不变**（仍是 `bad`）——这个标志只驱动提示文案，有测试守着不让它软化信号。
+  - 踩到的坑：第一版条件写成「`explicitlyConfigured === false` 就提示」，于是**本机这种
+    "照着约定用、从没打开过设置"的人也会看到"尚未配置"**（他的配置同样是默认值）。
+    补上 `freshness.missing === true` 后才两边都对。已加正反两个测试 + 真机路由验证。
 - 关键取舍与实测踩坑：见 `docs/decisions.md`。
 
 ## 下一步

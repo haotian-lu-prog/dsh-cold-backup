@@ -237,11 +237,21 @@ export async function collectStatus(config, deps = {}) {
     now: deps.now,
   })
 
+  // Did the user actually point this plugin at anything, or is it still on the shipped default?
+  // A brand-new install whose default file happens not to exist is "not set up yet", not "your
+  // backup is broken" — the panel has to tell those apart to say anything useful on the first run.
+  // Health is deliberately unaffected; this only drives the hint.
+  const explicitlyConfigured = Boolean(config.launchdLabel)
+    || Boolean(config.statusCommand)
+    || (config.freshnessFile ?? DEFAULT_FRESHNESS_FILE) !== DEFAULT_FRESHNESS_FILE
+    || (config.failureFile ?? DEFAULT_FAILURE_FILE) !== DEFAULT_FAILURE_FILE
+
   return {
     generatedAt: Date.now(),
     level: evaluated.level,
     reasons: evaluated.reasons,
     ageHours: evaluated.ageHours,
+    explicitlyConfigured,
     freshness,
     failure,
     launchd,
