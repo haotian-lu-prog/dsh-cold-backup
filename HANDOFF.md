@@ -44,25 +44,49 @@
 - **npm 尚未上架，且被登录阻塞**：`npm whoami` → `E401 Unauthorized`。
   `npm publish --dry-run` 本身**通过**（7 个文件、包大小 14.6 kB、npm shasum
   `2219d3ddd8913e23cc454381418c28a34ad2395f`），说明包是合格的，只差一次 `npm login`。
+  - 诊断：`~/.npmrc` 里**有** `//registry.npmjs.org/:_authToken`（mtime 2026-09-29 18:31，
+    正是发布 `dsh-notifications` 那次），但 registry 现在返回 401 —— 令牌已被吊销或过期。
+    所以不是"没配过"，是**需要重新登录**。
+  - 参考实现 `dsh-notifications` 的 `.github/workflows/publish.yml` 用的是
+    **npm trusted publishing（OIDC）**，仓库里不存 token。本仓库已照抄一份：
+    首次上架后到 npm 的 Package → Settings → Trusted Publisher 配一次，
+    之后发 Release 就自动发布、无需任何 token。
+- **dsh market 投稿已备好并干跑验证通过**（2026-09-30，未开 PR）：
+  - 投稿形态：往 `awesome-dsh-plugin/awesome-dsh-plugin` 的 `data/plugins/<owner>__<repo>.yml`
+    **只加一个文件**。本仓库的条目：`data/plugins/haotian-lu-prog__dsh-dev-backup.yml`，
+    分类 **`dev`**（市场的 "Development & Runtime"；`notify` 不合适——本插件不通知，只显示状态）。
+  - 干跑（浅克隆 + `npm ci` + 切分支 + 提交，再跑市场自己的脚本）：
+    - `slugFor(url)` == 文件名 ✓；`readEntries()` 解析成功，条目总数 4392 → **4393** ✓
+    - 仓库自带测试 `added-dates` / `capabilities` / `adopt-discussions` → **18/18 通过** ✓
+    - **`scripts/check-submission.mjs`（带真 GITHUB_TOKEN）→ 唯一失败项就是年龄**：
+      "repository is 0.0 days old (needs 1) — nothing to do: this check re-runs by itself and
+      should clear in about 24h"。也就是说 `dsh.bundle` 清单、非归档、非 DSH 本身这几项**都已经过了**。
+  - 分支已推到 fork（不在 `/tmp`，不会丢）：
+    `haotian-lu-prog/awesome-dsh-plugin` 分支 `add-dsh-dev-backup` @ `0c43f51`，diff **+1 文件 / +6 行**。
+  - 年龄门槛：仓库建于 `2026-09-30T08:59:35Z` → **`2026-10-01T08:59:35Z` 之后**才能提 PR。
+- **CI 已补齐**（本轮新增）：`.github/workflows/conventions.yml`（与工作区模板逐字节一致）
+  与 `.github/workflows/publish.yml`（trusted publishing 发布流水线）。
 - 关键取舍与实测踩坑：见 `docs/decisions.md`。
 
 ## 下一步
 
-- [ ] **（需要人工）`npm login`**，然后 `cd ~/dev/dsh-dev-backup && npm publish`。
-      上架后把 registry tarball 的 shasum 与本仓库 `npm pack` / Release asset 做三方比对，
-      记回本文件（参考 `dsh-notifications` 的做法）。
+- [ ] **（需要人工，一步）重新登录 npm**：`npm login`（`~/.npmrc` 里现有 token 已失效）。
+      登录后我就能 `npm publish`，并把 registry tarball 的 shasum 与本地 `npm pack` /
+      GitHub Release asset 做三方比对，记回本文件。
+- [ ] 上架后到 npm 的 **Package → Settings → Trusted Publisher** 配一次
+      （user `haotian-lu-prog` / repo `dsh-dev-backup` / workflow `publish.yml`），
+      之后发 Release 即自动发布；顺便手动跑一次 `workflow_dispatch` 当作带依赖的彩排。
 - [ ] 复核 npm 上 `repository.url` 指向本仓库（市场脚本 `scripts/probe-npm.mjs` 依赖这一点
       来展示安装命令与版本号，而不是源码构建命令）。
-- [ ] 投稿 dsh market：往 `awesome-dsh-plugin/awesome-dsh-plugin` 的
-      `data/plugins/<owner>__<repo>.yml` **加一个文件**（不要改 README，README 由脚本生成）。
-      **CI 要求仓库创建满 24 小时** —— 本仓库 `createdAt = 2026-09-30T08:59:35Z`，
-      即 **2026-10-01T08:59:35Z 之后**才可提 PR。
-      参考同作者的 `dsh-notifications` 走过的同一条路（其 HANDOFF 记录了完整形态与投稿内容）。
-- [ ] 投稿前先定 market 分类：查上游 `data/plugins/*.yml` 的现有枚举，
-      `dsh-notifications` 用的是 `notify`，本插件更接近 `backup` / `devops` 之类。
+- [ ] **2026-10-01T08:59:35Z 之后**开市场 PR：fork 分支 `add-dsh-dev-backup` 已就绪
+      （`0c43f51`，+1 文件 / +6 行）。开 PR 前先 `git fetch upstream && git rebase upstream/main`
+      再推一次，避免 fork 落后导致 CI 重跑失败。**只加 yml，不要提交生成出来的两个 README**。
 - [ ] 后续改动推 main 会被 pre-push 钩子拦（`dsh-dev-backup` 不在 `_shared` 的白名单里）。
       单维护者的公共插件仓，建议在 `git-hooks/main-push-allow.txt` 里加一行，
-      或每次都显式 `ALLOW_MAIN_PUSH=1`（本文件与仓库的发布说明就是这么推上去的）。
+      或每次都显式 `ALLOW_MAIN_PUSH=1`（本文件与 Release 说明就是这么推上去的）。
+- [ ] 旁注（不属于本仓库）：同作者的 `dsh-notifications` 也已发布 npm，但其市场 PR 尚未开
+      （市场里查不到该条目，上游也没有对应 open PR）。它的 HANDOFF 说 PR 已排期——
+      如果那是遗留项，需要单独收尾。
 
 ## 未决问题
 
