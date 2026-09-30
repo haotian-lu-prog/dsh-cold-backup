@@ -41,12 +41,18 @@
     全局提交身份（iCloud 邮箱）。已把**仓库本地**身份设为
     `49531320+haotian-lu-prog@users.noreply.github.com` 并 `--amend --reset-author` 重写提交。
     （`_shared` 的 HANDOFF 早记过同一条，新仓库仍会再踩一次——`dev-new` 可以考虑顺手写好本地身份。）
-- **npm 尚未上架，且被登录阻塞**：`npm whoami` → `E401 Unauthorized`。
-  `npm publish --dry-run` 本身**通过**（7 个文件、包大小 14.6 kB、npm shasum
-  `2219d3ddd8913e23cc454381418c28a34ad2395f`），说明包是合格的，只差一次 `npm login`。
+- **npm 尚未上架，且被登录阻塞**：
+  - `npm whoami` → `E401 Unauthorized`。
+  - 直接尝试 `npm publish --access public` → **`E404` on `PUT /dsh-dev-backup`**
+    （npm 对"无权限创建包名"返回 404 而不是 401，避免泄露包名是否存在）。两者都指向认证，不是包不合法。
+  - `npm publish --dry-run` 本身**通过**（7 个文件、14.6 kB、npm shasum
+    `2219d3ddd8913e23cc454381418c28a34ad2395f`），说明包是合格的。
   - 诊断：`~/.npmrc` 里**有** `//registry.npmjs.org/:_authToken`（mtime 2026-09-29 18:31，
-    正是发布 `dsh-notifications` 那次），但 registry 现在返回 401 —— 令牌已被吊销或过期。
-    所以不是"没配过"，是**需要重新登录**。
+    正是发布 `dsh-notifications` 那次），npm 也确实在读这个文件（`npm config get userconfig` 指向它），
+    但 registry 现在拒绝它 —— **令牌已过期或被吊销**。
+    旁证：`npm view dsh-notifications version` 仍是 `1.0.0`（公开读），说明当时那次发布确实成功过。
+  - **需要人工**：`npm login`（或到 npm 建一个 granular access token 覆盖 `~/.npmrc` 里那行）。
+    登录后立即发布，因为 web 登录签发的 token 可能不长命。
   - 参考实现 `dsh-notifications` 的 `.github/workflows/publish.yml` 用的是
     **npm trusted publishing（OIDC）**，仓库里不存 token。本仓库已照抄一份：
     首次上架后到 npm 的 Package → Settings → Trusted Publisher 配一次，
