@@ -21,6 +21,7 @@
 url: https://github.com/haotian-lu-prog/dsh-dev-backup
 name: haotian-lu-prog/dsh-dev-backup
 category: dev
+tarball: https://github.com/haotian-lu-prog/dsh-dev-backup/releases/download/v1.0.0/dsh-dev-backup-1.0.0.tgz
 description:
   en: '...'
   zh: '...'
@@ -30,6 +31,19 @@ description:
 `scripts/lib/entries.mjs` 的 `CAT_IDS` 定义（`agi, ui, usage, theme, model, identity, session,
 memory, tools, wsl, browser, vision, voice, docs, skill, workflow, git, notify, dev, security,
 remote, market, fun`）。本插件不通知、只显示状态，所以 `notify` 不合适。
+
+**描述必须与代码相符**——市场评审会拿描述去核对代码，夸大是"本来不错却被退回"的头号原因。
+当前那两句逐条对得上：成功时间戳文件 / 失败日志 / launchd 状态与退出码 / 可选状态命令，
+以及"逐条列出具体原因"（就是 `reasons`）。
+
+### 为什么带 `tarball:`
+
+- 市场**推荐**发 npm；没发 npm 时，可以用 `tarball:` 指向 GitHub Release 上的预构建产物，
+  这样市场给用户的是一行安装命令，而不是"从源码构建"。
+- 本仓库当前 **npm 未上架**（卡在登录），所以这个字段让安装路径当场可用。
+- **钉住 tag 而不是用 `latest/download/`**：后者只在请求时解析 `latest`、文件名却按字面取，
+  资产名带版本号时"提交当天有效、下次发版就 404"。钉 tag 时带版本的文件名反而是正常写法。
+- npm 上架后这个字段可以保留（它始终指向 v1.0.0 那份，不会烂），也可以按维护者口味删掉。
 
 > YAML 注意：`description` 里若出现 `": "`（冒号+空格）必须加引号，否则会被解析成嵌套 mapping
 > ——`readEntries()` 专门为这个最常见的错误写了提示。
@@ -43,7 +57,7 @@ cd awesome && npm ci --ignore-scripts
 
 git remote add fork https://github.com/haotian-lu-prog/awesome-dsh-plugin.git
 git fetch fork add-dsh-dev-backup
-git checkout -b add-dsh-dev-backup fork/add-dsh-dev-backup   # 上一轮已推好的分支
+git checkout -b add-dsh-dev-backup fork/add-dsh-dev-backup   # 已推好的分支
 
 # 开 PR 前先跟上上游，避免 fork 落后导致 CI 重跑失败
 git fetch --depth 1 origin main
@@ -69,9 +83,28 @@ reason whenever it did not.
 
 ## 已做过的干跑（2026-09-30）
 
+对着市场**自己的**脚本跑，而不是凭感觉：
+
 - `slugFor(url)` == 文件名 ✓
-- `readEntries()` 解析成功，条目数 4392 → 4393 ✓
+- `readEntries()` 解析成功（含 `tarball` 字段——它属于 `ENTRY_KEYS` 白名单），条目数 4392 → 4393 ✓
 - `node --test scripts/added-dates.test.mjs scripts/capabilities.test.mjs scripts/adopt-discussions.test.mjs` → **18/18 通过**
 - `GITHUB_TOKEN=<token> node scripts/check-submission.mjs --base <sha>` → **唯一失败项是年龄**
   （"repository is 0.0 days old (needs 1)"），其余（`dsh.bundle` 清单 / 非归档 / 非 DSH 本身）全过
-- 分支已推到 fork：`add-dsh-dev-backup` @ `0c43f51`，diff **+1 文件 / +6 行**
+- 分支已推到 fork：`add-dsh-dev-backup` @ `1ba2700`，diff **+1 文件 / +7 行**
+
+## 对照 contributing.md 的自查
+
+| 要求 | 状态 |
+|---|---|
+| 一个文件、按 `<owner>__<repo>.yml` 命名 | ✓ |
+| `url` 与仓库完全一致 | ✓ |
+| 描述一行、以句号结尾、无营销词 | ✓（已从两行长句改短） |
+| 描述与代码相符（评审会核对） | ✓ 逐条对得上 |
+| `dsh.bundle`（**不能只有 `dsh.client`**） | ✓ 两者都有 |
+| 仓库根有 `cordis.patch.yml` | ✓ |
+| 真实可用的代码，非占位 | ✓ 19 项测试 + 真机 E2E |
+| 仓库创建满 1 天 | ⏳ 2026-10-01T08:59:35Z |
+| `dsh-plugin` topic | ✓ |
+| 官方 `@deepseek-ai/*` 走 peerDependencies | ✓ 已从 dependencies 改过来 |
+| peer 范围带显式预发布分支 | ✓ `^0.2.0-rc.2` |
+| PR 只动自己那一条 | ✓ +1 文件 |

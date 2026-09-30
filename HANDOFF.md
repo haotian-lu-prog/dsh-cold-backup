@@ -61,15 +61,27 @@
   - 投稿形态：往 `awesome-dsh-plugin/awesome-dsh-plugin` 的 `data/plugins/<owner>__<repo>.yml`
     **只加一个文件**。本仓库的条目：`data/plugins/haotian-lu-prog__dsh-dev-backup.yml`，
     分类 **`dev`**（市场的 "Development & Runtime"；`notify` 不合适——本插件不通知，只显示状态）。
+  - **逐条对照了市场的 `contributing.md`**，两条原本不符、已改：
+    1. 「官方 `@deepseek-ai/*` 包请用 peerDependencies 声明」——`schemastery` 原先在 `dependencies`。
+       已改成 peerDependency，**并实测确认可用**：官方 web profile 里根本没有 schemastery
+       （harness 自己内部解析官方包）；全新隔离 profile 装 tarball 时 pnpm 只装了 1 个包、
+       没自动装 peer，插件照样启动、路由 200、日志无报错。本地 `npm install` / `npm ci`
+       会自动装上非可选 peer，19/19 测试全过。同生态的 `dsh-plugin-proxy` 也是这么声明的。
+    2. 「描述一行、以句号结尾、无营销词」——原描述是两行长句，已改短。
   - 干跑（浅克隆 + `npm ci` + 切分支 + 提交，再跑市场自己的脚本）：
-    - `slugFor(url)` == 文件名 ✓；`readEntries()` 解析成功，条目总数 4392 → **4393** ✓
+    - `slugFor(url)` == 文件名 ✓；`readEntries()` 解析成功（含 `tarball` 字段），条目数 4392 → **4393** ✓
     - 仓库自带测试 `added-dates` / `capabilities` / `adopt-discussions` → **18/18 通过** ✓
     - **`scripts/check-submission.mjs`（带真 GITHUB_TOKEN）→ 唯一失败项就是年龄**：
       "repository is 0.0 days old (needs 1) — nothing to do: this check re-runs by itself and
       should clear in about 24h"。也就是说 `dsh.bundle` 清单、非归档、非 DSH 本身这几项**都已经过了**。
+  - **条目带 `tarball:` 字段**，钉住 `v1.0.0` 的 Release asset：
+    因为 npm 还没上架，市场就能给出一行预构建安装命令而不是"从源码构建"。
+    钉 tag 而非 `latest/download/`——后者只在请求时解析 `latest`、文件名按字面取，
+    资产名带版本号时会"当天有效、下次发版 404"。
   - 分支已推到 fork（不在 `/tmp`，不会丢）：
-    `haotian-lu-prog/awesome-dsh-plugin` 分支 `add-dsh-dev-backup` @ `0c43f51`，diff **+1 文件 / +6 行**。
+    `haotian-lu-prog/awesome-dsh-plugin` 分支 `add-dsh-dev-backup` @ `1ba2700`，diff **+1 文件 / +7 行**。
   - 年龄门槛：仓库建于 `2026-09-30T08:59:35Z` → **`2026-10-01T08:59:35Z` 之后**才能提 PR。
+  - 详细对照表与执行步骤见 `docs/market-submission.md`。
 - **CI 已补齐**（本轮新增）：`.github/workflows/conventions.yml`（与工作区模板逐字节一致）
   与 `.github/workflows/publish.yml`（trusted publishing 发布流水线）。
 - **首次运行体验修正**（本轮）：冷备约定的默认路径在陌生机器上**本来就不存在**，
