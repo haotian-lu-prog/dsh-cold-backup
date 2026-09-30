@@ -12,7 +12,7 @@
 
 ## 当前状态
 
-**插件已写完、真机验证通过；GitHub 已公开＋已发 Release；npm 上架卡在登录。**
+**npm 与 GitHub 均已公开发布，且从 npm 装的端到端已验证；只剩 dsh market 的投稿（等年龄门槛）。**
 
 - 目标：把 dev-backup 做成 DSH 插件 → 上传 npm + GitHub → 申请加入 dsh market，
   让人能在 **DSH 0.2.0-rc.2** 的 UI 里看备份实时状态。
@@ -41,22 +41,22 @@
     全局提交身份（iCloud 邮箱）。已把**仓库本地**身份设为
     `49531320+haotian-lu-prog@users.noreply.github.com` 并 `--amend --reset-author` 重写提交。
     （`_shared` 的 HANDOFF 早记过同一条，新仓库仍会再踩一次——`dev-new` 可以考虑顺手写好本地身份。）
-- **npm 尚未上架，且被登录阻塞**：
-  - `npm whoami` → `E401 Unauthorized`。
-  - 直接尝试 `npm publish --access public` → **`E404` on `PUT /dsh-dev-backup`**
-    （npm 对"无权限创建包名"返回 404 而不是 401，避免泄露包名是否存在）。两者都指向认证，不是包不合法。
-  - `npm publish --dry-run` 本身**通过**（7 个文件、14.6 kB、npm shasum
-    `2219d3ddd8913e23cc454381418c28a34ad2395f`），说明包是合格的。
-  - 诊断：`~/.npmrc` 里**有** `//registry.npmjs.org/:_authToken`（mtime 2026-09-29 18:31，
-    正是发布 `dsh-notifications` 那次），npm 也确实在读这个文件（`npm config get userconfig` 指向它），
-    但 registry 现在拒绝它 —— **令牌已过期或被吊销**。
-    旁证：`npm view dsh-notifications version` 仍是 `1.0.0`（公开读），说明当时那次发布确实成功过。
-  - **需要人工**：`npm login`（或到 npm 建一个 granular access token 覆盖 `~/.npmrc` 里那行）。
-    登录后立即发布，因为 web 登录签发的 token 可能不长命。
-  - 参考实现 `dsh-notifications` 的 `.github/workflows/publish.yml` 用的是
-    **npm trusted publishing（OIDC）**，仓库里不存 token。本仓库已照抄一份：
-    首次上架后到 npm 的 Package → Settings → Trusted Publisher 配一次，
-    之后发 Release 就自动发布、无需任何 token。
+- **npm 已上架**（2026-09-30）：`dsh-dev-backup@1.0.0`，`dist-tags.latest = 1.0.0`。
+  - **三方校验和逐字节一致**：registry 的 `dist.tarball` 下载 / GitHub Release asset `v1.0.0` /
+    本地 `npm pack` —— sha256 均为
+    `c18e8f58c5a9121dc3a39e5f36438991c6bdd0471b70ed4cf02422ba304db366`。
+  - registry 上 `repository.url = git+https://github.com/haotian-lu-prog/dsh-dev-backup.git`
+    （市场脚本 `probe-npm.mjs` 要求这一点，否则卡片会退化成"从源码构建"）。
+  - **从 npm 装的端到端也验过**（全新隔离 `DSH_HOME`，既不是本地 link 也不是本地 tarball）：
+    `dsh plugin add dsh-dev-backup` → patch 生效、路由 200、Client 模块以包名注册且 bundle 取回
+    **HTTP 200 / 15369 bytes**、日志无 error/warn。见 `docs/evidence/e2e-0.2.0-rc.2.md` 第 7 节。
+  - **发布过程踩的坑（值得记）**：账号 2FA 是 **passkey**，没有 6 位 OTP，所以 `npm publish`
+    直接报 `EOTP`、`--auth-type=web` 也一样；最后是建了一个**开了 Bypass 2FA 的
+    granular access token** 写进 `~/.npmrc` 才发出去。
+  - ⚠️ 那个 granular token 是**为首次发布临时建的**。配好 trusted publishing 之后应**删掉它**
+    （见「下一步」）。
+  - 更早的失败形态留档：未登录时 `npm whoami` → `E401`，`npm publish` → **`E404` on PUT**
+    （npm 用 404 表示"无权限创建该包名"，不泄露包名是否存在）。
 - **dsh market 投稿已备好并干跑验证通过**（2026-09-30，未开 PR）：
   - 投稿形态：往 `awesome-dsh-plugin/awesome-dsh-plugin` 的 `data/plugins/<owner>__<repo>.yml`
     **只加一个文件**。本仓库的条目：`data/plugins/haotian-lu-prog__dsh-dev-backup.yml`，
@@ -96,17 +96,19 @@
 
 ## 下一步
 
-- [ ] **（需要人工，一步）重新登录 npm**：`npm login`（`~/.npmrc` 里现有 token 已失效）。
-      登录后我就能 `npm publish`，并把 registry tarball 的 shasum 与本地 `npm pack` /
-      GitHub Release asset 做三方比对，记回本文件。
-- [ ] 上架后到 npm 的 **Package → Settings → Trusted Publisher** 配一次
-      （user `haotian-lu-prog` / repo `dsh-dev-backup` / workflow `publish.yml`），
-      之后发 Release 即自动发布；顺便手动跑一次 `workflow_dispatch` 当作带依赖的彩排。
-- [ ] 复核 npm 上 `repository.url` 指向本仓库（市场脚本 `scripts/probe-npm.mjs` 依赖这一点
-      来展示安装命令与版本号，而不是源码构建命令）。
+- [x] ~~重新登录 npm 并发布~~ → 已完成，见上一节（含三方校验和比对与从 npm 装的端到端）。
+- [ ] **（需要人工）配 trusted publishing，然后删掉临时 token**：
+      到 npm → `dsh-dev-backup` → Settings → Trusted Publisher，填
+      user `haotian-lu-prog` / repo `dsh-dev-backup` / workflow `publish.yml`（Environment 留空）。
+      配好后删掉那个开了 Bypass 2FA 的 granular access token（`npm token list` 可查，
+      或到 Access Tokens 页面删），本机再执行 `npm config delete //registry.npmjs.org/:_authToken`。
+      之后发 Release 即自动发布，不再需要任何长期凭据。
 - [ ] **2026-10-01T08:59:35Z 之后**开市场 PR：fork 分支 `add-dsh-dev-backup` 已就绪
-      （`0c43f51`，+1 文件 / +6 行）。开 PR 前先 `git fetch upstream && git rebase upstream/main`
+      （`2c26806`，+1 文件 / +6 行）。开 PR 前先 `git fetch origin main && git rebase origin/main`
       再推一次，避免 fork 落后导致 CI 重跑失败。**只加 yml，不要提交生成出来的两个 README**。
+      步骤见 `docs/market-submission.md`。
+- [ ] 发布后复核：市场 `probe-npm.mjs` 会读 registry 的 `repository.url` 决定展示 npm 安装命令 ——
+      已确认指向本仓库 ✓；条目里**不再**放 `tarball:`（探针优先 npm，留着反而是一个会烂的钉住链接）。
 - [ ] 后续改动推 main 会被 pre-push 钩子拦（`dsh-dev-backup` 不在 `_shared` 的白名单里）。
       单维护者的公共插件仓，建议在 `git-hooks/main-push-allow.txt` 里加一行，
       或每次都显式 `ALLOW_MAIN_PUSH=1`（本文件与 Release 说明就是这么推上去的）。
@@ -116,12 +118,10 @@
 
 ## 未决问题
 
-- **包名**：暂定 `dsh-dev-backup`（贴合上游「dev-backup」这个称呼）。若更看重陌生人检索，
-  `dsh-backup-status` 更通用 —— 但改名要同步四处标识（见 `AGENTS.md`），越早越好。
 - **默认配置偏「冷备约定」**：`freshnessFile` / `failureFile` 默认指向
   `~/Library/Logs/dev-backup/*`。好处是作者本人开箱即用；代价是陌生人装上后要先改路径才有意义
   （面板会明确提示「尚未配置」，不会假装正常）。是否改成「空默认值 + 引导」，待定。
-- **market 分类**：`dsh-notifications` 用的是 `notify`；本插件更接近 `devops` / `backup` 之类，
-  投稿前要看上游 `data/plugins/*.yml` 的现有分类枚举。
+- **是否做历史曲线**：目前只报当前状态。要画趋势就得让 Host 半侧落一份时间序列，会引入写入行为
+  （现在插件是纯只读的），需要重新权衡。
 - **是否做历史曲线**：目前只报当前状态。要画趋势就得让 Host 半侧落一份时间序列，会引入写入行为
   （现在插件是纯只读的），需要重新权衡。
