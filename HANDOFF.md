@@ -12,7 +12,7 @@
 
 ## 当前状态
 
-**插件已写完并在真实 Harness 上端到端验证通过；尚未发布。**
+**插件已写完、真机验证通过；GitHub 已公开＋已发 Release；npm 上架卡在登录。**
 
 - 目标：把 dev-backup 做成 DSH 插件 → 上传 npm + GitHub → 申请加入 dsh market，
   让人能在 **DSH 0.2.0-rc.2** 的 UI 里看备份实时状态。
@@ -30,23 +30,39 @@
        `failure-not-superseded`，把「有目标被跳过（疑似密钥或读不到）」这句从日志里捞了出来）
     3. Client 模块以**包名** `dsh-dev-backup/client.js` 出现在启动页模块表里，与官方客户端模块并列
     4. 该模块 URL 取回 **HTTP 200 / 14732 bytes**，内容就是本仓库的 `client.js`
-- 关键取舍与两个实测踩坑：见 `docs/decisions.md`。
+- **GitHub 已发布**（2026-09-30）：
+  - 仓库 <https://github.com/haotian-lu-prog/dsh-dev-backup>，**PUBLIC**，
+    `createdAt = 2026-09-30T08:59:35Z`；topics：`backup` / `deepseek-harness` / `dsh` /
+    `dsh-plugin` / `launchd`；匿名 `curl` 返回 HTTP 200（含 raw README）。
+  - 首个提交 `881f2ba`（分支 `main`）。
+  - Release `v1.0.0`：<https://github.com/haotian-lu-prog/dsh-dev-backup/releases/tag/v1.0.0>，
+    附 asset `dsh-dev-backup-1.0.0.tgz`，**sha256 `cc73be40a059c92cd56b8415fb973ede886f9175b04a368b9fd9a4f4a3eda281`**。
+  - 踩坑：首次 push 被 GitHub 以 *email privacy restrictions* 拒绝。原因是 `dev-new` 建仓后用的是
+    全局提交身份（iCloud 邮箱）。已把**仓库本地**身份设为
+    `49531320+haotian-lu-prog@users.noreply.github.com` 并 `--amend --reset-author` 重写提交。
+    （`_shared` 的 HANDOFF 早记过同一条，新仓库仍会再踩一次——`dev-new` 可以考虑顺手写好本地身份。）
+- **npm 尚未上架，且被登录阻塞**：`npm whoami` → `E401 Unauthorized`。
+  `npm publish --dry-run` 本身**通过**（7 个文件、包大小 14.6 kB、npm shasum
+  `2219d3ddd8913e23cc454381418c28a34ad2395f`），说明包是合格的，只差一次 `npm login`。
+- 关键取舍与实测踩坑：见 `docs/decisions.md`。
 
 ## 下一步
 
-- [ ] **npm 发布被阻塞：本机 npm 未登录**（`npm whoami` → `E401 Unauthorized`）。
-      需要人工跑一次 `npm login`；之后 `npm publish` 即可（`publishConfig` 已设 public）。
-- [ ] 建 GitHub 公开仓库 `haotian-lu-prog/dsh-dev-backup` 并推送（`gh` 已登录：
-      `gh repo create dsh-dev-backup --public --source . --push`）。
-- [ ] 建 `v1.0.0` Release 并附 `npm pack` 的 tarball（校验和要与 npm registry 的一致）。
-- [ ] 加 topics：`dsh-plugin` 等。
+- [ ] **（需要人工）`npm login`**，然后 `cd ~/dev/dsh-dev-backup && npm publish`。
+      上架后把 registry tarball 的 shasum 与本仓库 `npm pack` / Release asset 做三方比对，
+      记回本文件（参考 `dsh-notifications` 的做法）。
+- [ ] 复核 npm 上 `repository.url` 指向本仓库（市场脚本 `scripts/probe-npm.mjs` 依赖这一点
+      来展示安装命令与版本号，而不是源码构建命令）。
 - [ ] 投稿 dsh market：往 `awesome-dsh-plugin/awesome-dsh-plugin` 的
       `data/plugins/<owner>__<repo>.yml` **加一个文件**（不要改 README，README 由脚本生成）。
-      **CI 要求仓库创建满 24 小时**，所以建仓当天不能提 PR。
-      参考同作者的 `dsh-notifications` 走过的同一条路（其 HANDOFF 记录了完整形态）。
-- [ ] 复核：市场脚本 `scripts/probe-npm.mjs` 从仓库 HEAD 的 `package.json` 取包名，再要求 registry 的
-      `repository.url` 含该仓库路径 —— 本包已满足
-      （`git+https://github.com/haotian-lu-prog/dsh-dev-backup.git`）。
+      **CI 要求仓库创建满 24 小时** —— 本仓库 `createdAt = 2026-09-30T08:59:35Z`，
+      即 **2026-10-01T08:59:35Z 之后**才可提 PR。
+      参考同作者的 `dsh-notifications` 走过的同一条路（其 HANDOFF 记录了完整形态与投稿内容）。
+- [ ] 投稿前先定 market 分类：查上游 `data/plugins/*.yml` 的现有枚举，
+      `dsh-notifications` 用的是 `notify`，本插件更接近 `backup` / `devops` 之类。
+- [ ] 后续改动推 main 会被 pre-push 钩子拦（`dsh-dev-backup` 不在 `_shared` 的白名单里）。
+      单维护者的公共插件仓，建议在 `git-hooks/main-push-allow.txt` 里加一行，
+      或每次都显式 `ALLOW_MAIN_PUSH=1`（本文件与仓库的发布说明就是这么推上去的）。
 
 ## 未决问题
 
