@@ -12,7 +12,8 @@
 
 ## 当前状态
 
-**npm 与 GitHub 均已公开发布，且从 npm 装的端到端已验证；只剩 dsh market 的投稿（等年龄门槛）。**
+**四件事全部完成：插件已做完并真机验证、已发 npm、已公开发 GitHub、市场投稿 PR 已提交且 CI 通过。**
+只剩维护者评审合并（不由我们控制）。
 
 - 目标：把 dev-backup 做成 DSH 插件 → 上传 npm + GitHub → 申请加入 dsh market，
   让人能在 **DSH 0.2.0-rc.2** 的 UI 里看备份实时状态。
@@ -103,12 +104,17 @@
       配好后删掉那个开了 Bypass 2FA 的 granular access token（`npm token list` 可查，
       或到 Access Tokens 页面删），本机再执行 `npm config delete //registry.npmjs.org/:_authToken`。
       之后发 Release 即自动发布，不再需要任何长期凭据。
-- [ ] **2026-10-01T08:59:35Z 之后**开市场 PR：fork 分支 `add-dsh-dev-backup` 已就绪
-      （`2c26806`，+1 文件 / +6 行）。开 PR 前先 `git fetch origin main && git rebase origin/main`
-      再推一次，避免 fork 落后导致 CI 重跑失败。**只加 yml，不要提交生成出来的两个 README**。
-      步骤见 `docs/market-submission.md`。
-- [ ] 发布后复核：市场 `probe-npm.mjs` 会读 registry 的 `repository.url` 决定展示 npm 安装命令 ——
-      已确认指向本仓库 ✓；条目里**不再**放 `tarball:`（探针优先 npm，留着反而是一个会烂的钉住链接）。
+- [x] ~~2026-10-01T08:59:35Z 之后开市场 PR~~ → **已提交**：
+      <https://github.com/awesome-dsh-plugin/awesome-dsh-plugin/pull/6322>
+  - 开 PR 前先 rebase 到当时的上游 `main`（我们落后 20 个提交），rebase 干净，
+    diff 仍是 **+1 文件 / +6 行**；fork 分支现为 `a27ab99d3`。
+  - **CI（pr-gate / `check`）已通过**（8m52s）——`check-submission` 的仓库年龄（≥1 天）、
+    `dsh.bundle` 清单、非归档、非 DSH 本身全部达标。
+  - 剩下是维护者人工评审与合并，不由我们控制。
+- [ ] **等 PR 合并后回来确认**：市场列表里出现本插件，并核对 description / 分类是否被维护者调整
+      （分类被改是正常维护行为，不是打回）。
+- [x] ~~复核 `repository.url`~~ 已确认指向本仓库；条目里**不再**放 `tarball:`
+      （`probe-npm` 优先 npm，留着反而是会烂的钉住链接）。
 - [ ] 后续改动推 main 会被 pre-push 钩子拦（`dsh-dev-backup` 不在 `_shared` 的白名单里）。
       单维护者的公共插件仓，建议在 `git-hooks/main-push-allow.txt` 里加一行，
       或每次都显式 `ALLOW_MAIN_PUSH=1`（本文件与 Release 说明就是这么推上去的）。

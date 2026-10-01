@@ -1,4 +1,8 @@
-# dsh market 投稿（待执行）
+# dsh market 投稿（已提交）
+
+**PR：<https://github.com/awesome-dsh-plugin/awesome-dsh-plugin/pull/6322> —— CI 已通过，等维护者评审。**
+
+以下是当时执行的步骤与自查，留作以后更新条目时的参照。
 
 投稿目标：`awesome-dsh-plugin/awesome-dsh-plugin`。
 **形态：只加一个文件**，不要改 `README.md` / `README.zh.md`（它们由 `generate-readme.mjs` 生成，
@@ -10,7 +14,7 @@
 |---|---|
 | 仓库存在且非归档 | ✓ |
 | `package.json` 声明 `dsh.bundle` | ✓（`dsh.bundle.patch`） |
-| 仓库创建满 24 小时 | ⏳ 建于 `2026-09-30T08:59:35Z` → **`2026-10-01T08:59:35Z` 后可提** |
+| 仓库创建满 24 小时 | ✓ 已满（建于 `2026-09-30T08:59:35Z`） |
 | npm 上有对应包 | ✓ `dsh-dev-backup@1.0.0`（registry 的 `repository.url` 已确认指向本仓库） |
 
 ## 要加的文件
