@@ -468,3 +468,98 @@ test('the client half loads through __ModuleLoader__ and registers one settings 
     'zh and en dictionaries must have identical keys',
   )
 })
+
+/**
+ * Render the panel once with a payload we control and collect every text node.
+ *
+ * The real component loads its data through `fetch` in an effect; here `useState` simply hands
+ * back the state we want, so one pass is enough — no timers, no re-render loop. This is what
+ * actually exercises the new detail block: `jsx`/`jsxs` are stubs, but the component body runs.
+ */
+async function renderClientPanel (data) {
+  const source = await readFile(new URL('../client.js', import.meta.url), 'utf8')
+  const nodes = []
+  let loaded
+  const window = { __ModuleLoader__: { load: options => { loaded = options } } }
+  const states = [{ status: 'ready', data, error: null }]
+  const require = specifier => {
+    if (specifier === 'react') {
+      return {
+        useState: initial => [states.length > 0 ? states.shift() : initial, () => {}],
+        useRef: () => ({ current: null }),
+        useEffect: () => {},
+        useCallback: fn => fn,
+      }
+    }
+    if (specifier === 'react/jsx-runtime') {
+      const jsx = (type, props) => {
+        const node = { type, props: props ?? {} }
+        nodes.push(node)
+        return node
+      }
+      return { jsx, jsxs: jsx }
+    }
+    throw new Error(`unexpected require: ${specifier}`)
+  }
+  new Function('window', 'document', source)(window, undefined)
+
+  let component = null
+  const ctx = {
+    effect: fn => fn(),
+    locale: { register: () => () => {}, bind: () => key => key },
+    slots: {
+      inject: (slot, fn) => fn(),
+      register: (options, registered) => { component = registered; return () => {} },
+    },
+  }
+  loaded.factory(require).apply(ctx)
+
+  const collect = value => {
+    if (value === null || value === undefined || value === false) return []
+    if (Array.isArray(value)) return value.flatMap(collect)
+    if (typeof value === 'object') return collect(value.props?.children)
+    return [String(value)]
+  }
+  component({ t: key => key })
+  return collect(nodes.map(node => node.props.children))
+}
+
+test('the client half renders the engine detail block from a dev-backup.status/1 document', async () => {
+  const payload = {
+    level: 'bad',
+    reasons: [{ code: 'engine:behind', target: 'demo', message: '备份落后（HEAD abc）' }],
+    ageHours: null,
+    explicitlyConfigured: true,
+    freshness: { path: '/x', missing: true, at: null },
+    failure: null,
+    launchd: null,
+    command: null,
+    engine: { configured: true, exitCode: 1, document: parseStatusJson(STATUS_JSON), output: null },
+    config: { refreshSeconds: 30 },
+  }
+  const texts = await renderClientPanel(payload)
+
+  assert.ok(texts.includes('detail'), 'the detail heading must be rendered')
+  assert.ok(texts.includes('demo'), 'every target label must be rendered')
+  assert.ok(texts.includes('scratch'), 'snapshot targets too')
+  assert.ok(texts.some(text => text.startsWith('[behind] demo：')), 'engine reasons keep their code and target')
+  assert.ok(texts.some(text => text.includes('stateBehind') === false && text.includes('备份落后')), 'the script sentence is shown')
+})
+
+test('the client half says so when the JSON source is configured but unusable', async () => {
+  const payload = {
+    level: 'bad',
+    reasons: [{ code: 'status-json-failed' }],
+    ageHours: null,
+    explicitlyConfigured: true,
+    freshness: null,
+    failure: null,
+    launchd: null,
+    command: null,
+    engine: { configured: true, exitCode: 127, document: null, output: 'command not found' },
+    config: { refreshSeconds: 30 },
+  }
+  const texts = await renderClientPanel(payload)
+  assert.ok(texts.includes('reasonStatusJsonFailed'), 'the broken source must be named, not hidden')
+  assert.ok(!texts.includes('demo'), 'a document that failed to parse must not render target rows')
+})

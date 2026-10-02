@@ -93,7 +93,7 @@ Host half (index.js)                       Client half (client.js)
   └─ serves it as JSON at /dsh-dev-backup/status
 ```
 
-Parsing and health rules are pure functions covered by 26 `node --test` cases, runnable without a
+Parsing and health rules are pure functions covered by 28 `node --test` cases, runnable without a
 live Harness:
 
 ```sh

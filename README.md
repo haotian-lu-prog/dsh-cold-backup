@@ -88,7 +88,7 @@ Host 半侧 (index.js)                      Client 半侧 (client.js)
   └─ 在 /dsh-dev-backup/status 上出 JSON
 ```
 
-健康判定与解析全是纯函数，`node --test` 覆盖 26 项，不需要真实 Harness 即可跑：
+健康判定与解析全是纯函数，`node --test` 覆盖 28 项，不需要真实 Harness 即可跑：
 
 ```sh
 npm test

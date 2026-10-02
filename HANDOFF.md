@@ -8,14 +8,14 @@
 - 分支：main
 - 开始时间：—
 - 本轮：新增 `statusJsonCommand` 消费 `dev-backup.status/1`（与 macOS 面板同一份判定）、
-  面板渲染逐目标明细、26 项测试全绿；`package.json` 升到 **1.1.0（尚未发布 npm）**。
+  面板渲染逐目标明细、28 项测试全绿；`package.json` 升到 **1.1.0（尚未发布 npm）**。
 
 > 一个仓库同一时刻只允许一个写者。下一位把上一行改成自己，并先读完下面的状态。
 
 ## 当前状态
 
 **2026-10-02 追加（二）：插件已能消费 `dev-backup.status/1`（`statusJsonCommand`），
-与 macOS 面板从此读同一份判定；只读性质不变。`npm test` 26/26。**
+与 macOS 面板从此读同一份判定；只读性质不变。`npm test` 28/28。**
 
 **2026-10-02 追加：已评估并否决「把 `dev-backup-runner` 复刻进本插件」——结论是只取只读呈现层，
 不搬引擎/调度/权限；理由与本轮实测证据见 `docs/decisions.md` 顶部。**
