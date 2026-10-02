@@ -4,14 +4,17 @@
 
 ## 当前写者
 
-- 工具：（空 —— 2026-10-02 DSH 会话已收工：1.1.0 的 Release 已就绪，npm 待配 trusted publishing）
+- 工具：（空 —— 2026-10-02 DSH 会话已收工：**1.1.0 已发布 npm，带 provenance**）
 - 分支：main
 - 开始时间：—
 - 本轮一：新增 `statusJsonCommand` 消费 `dev-backup.status/1`（与 macOS 面板同一份判定）、
   面板渲染逐目标明细、28 项测试全绿。
-- 本轮二：`package.json` 1.0.0 → **1.1.0**，tag `v1.1.0` 与 Release 已建（含 asset，与本地
-  `npm pack` **逐字节一致**，sha256 `f16fa4c57c1f309080a89912913d432de5912cafff741d73104d905ca0d2cc72`）；
-  **npm 上仍是 1.0.0** —— 见「下一步」。
+- 本轮二：`package.json` 1.0.0 → **1.1.0**，tag `v1.1.0` + GitHub Release + asset 已建。
+- 本轮三：trusted publishing 配好后**发布成功** —— `dsh-dev-backup@1.1.0`，
+  `dist-tags.latest = 1.1.0`，发布时刻 `2026-10-02T09:44:12Z`，带 **SLSA provenance**
+  （workflow `publish.yml`、ref `refs/tags/v1.1.0`、commit `56d8573`）。
+  三方校验：registry 产物 = Release asset **逐字节一致**，sha256
+  `03a06d8f532220ba58158cf9a89522285362f5a115393e11f9e3b5d4f5883372`。
 
 > 一个仓库同一时刻只允许一个写者。下一位把上一行改成自己，并先读完下面的状态。
 
@@ -23,6 +26,21 @@
 **2026-10-02 追加（三）：`v1.1.0` 的 Release 已建、CI（`publish.yml`）已跑但**在 npm 那步失败**：
 它成功签了 provenance，然后 `PUT https://registry.npmjs.org/dsh-dev-backup` 返回 **E404**
 （npm 对「无权限」一律回 404）。原因就是下面「下一步」里那件没做的事 —— trusted publishing 还没配。**
+→ 配好后已解决，见（四）。
+
+**2026-10-02 追加（四）：`dsh-dev-backup@1.1.0` 已发布**（`dist-tags.latest`，带 provenance）。
+两个细节值得记：
+1. **走的是「暂存 → 批准」**：trusted publisher 配好后 CI 那次 `npm publish` 把 1.1.0 放进 npm 的
+   staging（该次 CI 因此 conclusion=**success**），随后在 npm 侧批准才真正落到 registry
+   （`npm stage list dsh-dev-backup` 在批准后就空了）。**在批准前重跑 CI 会得到 `E409
+   Cannot publish over previously staged version`** —— 那不是失败，是「还没批准」。
+   想要**直接发布**、免掉这次批准，就在 npm 的 trusted publisher 配置里勾上 allow publish
+   （现在给的是 allow stage publish）。
+2. **「三方逐字节一致」不再自动成立**：CI 用的 npm 与本机 npm 版本不同，同源码打出的 tar
+   字节不同（registry 20221 字节 / 本机 `npm pack` 19824 字节，**解包后内容完全相同**）。
+   已把 Release asset 换成 **registry 那一份**（sha256 `03a06d8f…`），恢复「asset == 已发布产物」；
+   本地那份 `.tgz` 也已对齐。要复现「三处字节一致」，得让本机 npm 与 CI 的版本相同。
+   权威口径：registry 的 `dist.integrity` 与 provenance 的 subject sha512 一致（`48985eb8…` 开头）。
 
 **2026-10-02 追加：已评估并否决「把 `dev-backup-runner` 复刻进本插件」——结论是只取只读呈现层，
 不搬引擎/调度/权限；理由与本轮实测证据见 `docs/decisions.md` 顶部。**
@@ -113,7 +131,16 @@
 ## 下一步
 
 - [x] ~~重新登录 npm 并发布~~ → 已完成，见上一节（含三方校验和比对与从 npm 装的端到端）。
-- [ ] **（需要人工，唯一卡点）配 trusted publishing**：到 npm → `dsh-dev-backup` →
+- [x] ~~配 trusted publishing~~ → **已配好并发布成功**（见「当前状态（四）」）。留下的选择题：
+      要不要在 npm 侧把该 trusted publisher 改成 **allow publish**（现在给的是 allow stage publish）——
+      现在每次发版都会进 staging，需要在 npm 上批准一次才真正上线。
+- [ ] **（建议，需要人确认）删掉临时 token**：本机 `~/.npmrc` 里那个开了 Bypass 2FA 的
+      granular access token 已经不需要了（发布改走 OIDC），而 npm 正在收紧这类 token。
+      命令：`npm token list` 查 → Access Tokens 页面删 → 本机 `npm config delete //registry.npmjs.org/:_authToken`。
+- [ ] **1.1.0 还没做「真机 Harness E2E」**：0.2.0-rc.2 的端到端证据是 1.0.0 那一轮的
+      （`docs/evidence/e2e-0.2.0-rc.2.md`）。1.1.0 的增量是**新增可选字段**，已有单测 28 项 +
+      「插件真跑脚本、解析出 16 个目标」的集成检查，但**没在活的 Harness 里装过**。
+- [ ] ~~配 trusted publishing（原卡点，保留原始记录以免下次又踩）~~：到 npm → `dsh-dev-backup` →
       Settings → Trusted Publisher → GitHub Actions，填 user `haotian-lu-prog` /
       repo `dsh-dev-backup` / workflow `publish.yml`（Environment 留空）并保存（要过 passkey 2FA）。
       **配好后不需要重发 Release**：直接重跑那次失败的 CI 即可 ——
@@ -150,8 +177,8 @@
 - [x] ~~结构化的只读增强~~ → **已完成**：`backup-dev.sh --status --json`（契约 `dev-backup.status/1`）
   + 本插件的 `statusJsonCommand`，判定权交给脚本。剩下的是「本机没 Swift 工具链」那件事
   （面板侧已改完源码、编译不了，见 `_shared/HANDOFF.md` 未决问题）。
-- **`1.1.0` 还没发布**：`package.json` 已升版、`origin/main` 上是新代码，npm 上仍是 `1.0.0`。
-  要发就按 `docs/market-submission.md` 的 Release 流程走（trusted publishing 是否已配好未确认）。
+- [x] ~~`1.1.0` 还没发布~~ → **已发布**（2026-10-02T09:44:12Z，带 provenance）。
+  市场条目（PR #6322）指向 npm，因此列表里会自动显示 1.1.0，**无需改条目**。
 - **默认配置偏「冷备约定」**：`freshnessFile` / `failureFile` 默认指向
   `~/Library/Logs/dev-backup/*`。好处是作者本人开箱即用；代价是陌生人装上后要先改路径才有意义
   （面板会明确提示「尚未配置」，不会假装正常）。是否改成「空默认值 + 引导」，待定。
