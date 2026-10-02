@@ -1,6 +1,10 @@
 # dsh market 投稿（已提交）
 
-**PR：<https://github.com/awesome-dsh-plugin/awesome-dsh-plugin/pull/6322> —— CI 已通过，等维护者评审。**
+**PR：<https://github.com/awesome-dsh-plugin/awesome-dsh-plugin/pull/6410> —— CI 三项全绿，等维护者评审。**
+
+> 改名那轮重开过一次：原 PR **#6322** 是旧名（`dsh-dev-backup`）提交的，改名时把 fork 的 head 分支
+> 一起改名，GitHub 就把那个 PR 自动关了（head 分支消失 = PR close）。条目与仓库 slug 必须同名，
+> 所以以 #6410 重新提交，并在 #6322 上留了说明。
 
 以下是当时执行的步骤与自查，留作以后更新条目时的参照。
 
@@ -99,7 +103,7 @@ reason whenever it did not.
 - `node --test scripts/added-dates.test.mjs scripts/capabilities.test.mjs scripts/adopt-discussions.test.mjs` → **18/18 通过**
 - `GITHUB_TOKEN=<token> node scripts/check-submission.mjs --base <sha>` → **唯一失败项是年龄**
   （"repository is 0.0 days old (needs 1)"），其余（`dsh.bundle` 清单 / 非归档 / 非 DSH 本身）全过
-- 分支已推到 fork：`add-dsh-cold-backup` @ `2c26806`，diff **+1 文件 / +6 行**
+- 分支已推到 fork：`add-dsh-cold-backup` @ `da019ac`，diff **+1 文件 / +6 行**（以最新上游 `main` 为基）
 
 ## 对照 contributing.md 的自查
 

@@ -192,7 +192,9 @@
       用过了 2FA 的会话跑一次：
       `npm deprecate dsh-dev-backup@"*" "Renamed to dsh-cold-backup on 2026-10-02 (已改名为 dsh-cold-backup). Install: dsh plugin add dsh-cold-backup"`
       （旧包的 README 想改成指向新名，只能发一个新版本，而那个包同样要 2FA。）
-- [ ] **盯 #6410 的 CI**：`check`（pr-gate）预期与 #6322 一样通过，之后就是维护者人工评审。
+- [x] ~~**盯 #6410 的 CI**~~ → **三项全绿**（`check` ×2 + `Submission gate`，`mergeable=MERGEABLE`）；
+      剩维护者人工评审。文档里的 PR 链接与分支 sha 已同步成 #6410 / `da019ac`。
+      旧 #6322 保持 CLOSED 并留有指向 #6410 的说明。
 - [x] ~~重新登录 npm 并发布~~ → 已完成，见上一节（含三方校验和比对与从 npm 装的端到端）。
 - [x] ~~配 trusted publishing~~ → **已配好，且已改成 allow publish**：1.1.1 是**直接发布**的，
       不再进 staging、不需要在 npm 上批准一次（见「当前状态（五）」）。
