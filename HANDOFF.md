@@ -189,12 +189,13 @@
 
 ## 下一步
 
-- [ ] **（改名后新增，优先）给新包名 `dsh-cold-backup` 配 trusted publishing**：trusted publisher
-      是**按包**配的，旧名 `dsh-dev-backup` 那份配置对新名字不生效 —— 因此 CI 的 `publish.yml`
-      现在发不出去（`PUT` 404），1.1.1 是本机 `npm publish` 发的（无 provenance）。
-      npm → `dsh-cold-backup` → Settings → Trusted Publisher → GitHub Actions：
-      user `haotian-lu-prog` / repo `dsh-cold-backup` / workflow `publish.yml` / Environment **留空**，
-      并选 **allow publish**（别选 stage publish，否则又要走一次「批准」）。
+- [x] ~~**（改名后新增，优先）给新包名 `dsh-cold-backup` 配 trusted publishing**~~ → **2026-10-03 已配好并核对**：
+  用户用网页配好两份，`npm trust list`（经 2FA）读回来是
+  `type: github / file: publish.yml / repository: haotian-lu-prog/dsh-cold-backup /
+  permissions: publish, stage publish`，与工作流逐项对得上；引擎侧 `cold-backup` 同理。
+  旧包两份配置已删除（`npm trust list dsh-dev-backup` → `E404`，即「没有配置」）。
+  **OIDC 发布本身还没被真实发版验过**（`workflow_dispatch` 会跳过 publish 步骤）——
+  下一次发版即验证；万一 CI 那条路有问题，本机仍可用「浏览器 2FA + 本机 publish」兜底。
 - [x] ~~旧包 `dsh-dev-backup` 还没 deprecate~~ → **已 deprecate**（2026-10-02 深夜）：
   registry 上 1.0.0 / 1.1.0 / 1.1.1 三个版本都带上了改名消息；消费者侧实测打
   `npm warn deprecated dsh-dev-backup@1.1.1: Renamed to 'dsh-cold-backup' …`。
@@ -207,17 +208,14 @@
 - [x] ~~配 trusted publishing~~ → **已配好，且已改成 allow publish**：1.1.1 是**直接发布**的，
       不再进 staging、不需要在 npm 上批准一次（见「当前状态（五）」）。
 - [x] ~~上游联动：把 README / 配置示例从作者私有路径指向公开的 `dev-backup`~~ → 已随 **1.1.1** 发布。
-- [ ] **（需要你定）token 现状因为这次 deprecate 变了**：为了过 `dsh-dev-backup` 那个包级 2FA，
-      本轮用 `npm login --auth-type=web` 重新登录，`~/.npmrc` 里的 token 被**换成了网页登录
-      会话 token**（`npm_6qBj…`，下次任何写操作都要再在浏览器验一次 2FA）；**旧的 bypass-2FA
-      granular token 仍挂在账号上**（`npm token list` → `dsh-dev publish`，id `371aff`，
-      2026-09-30 建），只是不再被使用。旧值备份在 `~/.npmrc.bak-1790953916`。
-      三条路，选一条：
-      ① 把旧 token 写回 `~/.npmrc`（发版省事，代价是继续用一个 npm 正在收紧的 bypass-2FA token）；
-      ② **先给 `cold-backup` 与 `dsh-cold-backup` 配好 trusted publishing**，再
-         `npm token revoke 371aff` 撤掉它（推荐：发版改走 OIDC，账号上不留长期凭据）；
-      ③ 什么都不动（读操作照常；写操作每次过一次 2FA）。
-      注：`cold-backup@1.0.3` 仍是用**旧** token 发的（在换 token 之前），不受影响。
+- [x] ~~（需要你定）token 现状因为这次 deprecate 变了~~ → **用户选了 ②，2026-10-03 已收尾**：
+  两个新包名都配好 trusted publishing（见上一条，已用 `npm trust list` 核对），
+  随后 `npm token revoke 371aff` 成功 —— `npm token list` **现在为空**，用备份里的旧值实测
+  `npm whoami` → **401**（确认真死了）。**账号上不再有长期 token。**
+  本机 `~/.npmrc` 留的是**网页登录会话 token**（`npm_6qBj…`）：读操作照常，写操作每次要过一遍
+  浏览器 2FA —— 也就是说**以后发版别再走本机 `npm publish`，走 CI 的 OIDC**（`publish.yml` +
+  Release）。旧 token 值仍备份在 `~/.npmrc.bak-1790953916`（留着不影响安全，它已失效）。
+  注：`cold-backup@1.0.3` 是用**旧** token 发的（在撤销之前），不受影响。
 - [x] ~~**1.1.1 还没做「真机 Harness E2E」**~~ → **改名这一轮补上了**：
       `docs/evidence/e2e-0.2.0-rc.2.md` 新增第 8 节 —— 隔离 `DSH_HOME`、从 **npm registry**
       装 `dsh-cold-backup@1.1.1`、`--dump-config` 里出现 `# == dsh-cold-backup`、
