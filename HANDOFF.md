@@ -4,11 +4,14 @@
 
 ## 当前写者
 
-- 工具：（空 —— 2026-10-02 DSH 会话已收工：JSON 契约落地）
+- 工具：（空 —— 2026-10-02 DSH 会话已收工：1.1.0 的 Release 已就绪，npm 待配 trusted publishing）
 - 分支：main
 - 开始时间：—
-- 本轮：新增 `statusJsonCommand` 消费 `dev-backup.status/1`（与 macOS 面板同一份判定）、
-  面板渲染逐目标明细、28 项测试全绿；`package.json` 升到 **1.1.0（尚未发布 npm）**。
+- 本轮一：新增 `statusJsonCommand` 消费 `dev-backup.status/1`（与 macOS 面板同一份判定）、
+  面板渲染逐目标明细、28 项测试全绿。
+- 本轮二：`package.json` 1.0.0 → **1.1.0**，tag `v1.1.0` 与 Release 已建（含 asset，与本地
+  `npm pack` **逐字节一致**，sha256 `f16fa4c57c1f309080a89912913d432de5912cafff741d73104d905ca0d2cc72`）；
+  **npm 上仍是 1.0.0** —— 见「下一步」。
 
 > 一个仓库同一时刻只允许一个写者。下一位把上一行改成自己，并先读完下面的状态。
 
@@ -16,6 +19,10 @@
 
 **2026-10-02 追加（二）：插件已能消费 `dev-backup.status/1`（`statusJsonCommand`），
 与 macOS 面板从此读同一份判定；只读性质不变。`npm test` 28/28。**
+
+**2026-10-02 追加（三）：`v1.1.0` 的 Release 已建、CI（`publish.yml`）已跑但**在 npm 那步失败**：
+它成功签了 provenance，然后 `PUT https://registry.npmjs.org/dsh-dev-backup` 返回 **E404**
+（npm 对「无权限」一律回 404）。原因就是下面「下一步」里那件没做的事 —— trusted publishing 还没配。**
 
 **2026-10-02 追加：已评估并否决「把 `dev-backup-runner` 复刻进本插件」——结论是只取只读呈现层，
 不搬引擎/调度/权限；理由与本轮实测证据见 `docs/decisions.md` 顶部。**
@@ -106,12 +113,20 @@
 ## 下一步
 
 - [x] ~~重新登录 npm 并发布~~ → 已完成，见上一节（含三方校验和比对与从 npm 装的端到端）。
-- [ ] **（需要人工）配 trusted publishing，然后删掉临时 token**：
-      到 npm → `dsh-dev-backup` → Settings → Trusted Publisher，填
-      user `haotian-lu-prog` / repo `dsh-dev-backup` / workflow `publish.yml`（Environment 留空）。
-      配好后删掉那个开了 Bypass 2FA 的 granular access token（`npm token list` 可查，
-      或到 Access Tokens 页面删），本机再执行 `npm config delete //registry.npmjs.org/:_authToken`。
-      之后发 Release 即自动发布，不再需要任何长期凭据。
+- [ ] **（需要人工，唯一卡点）配 trusted publishing**：到 npm → `dsh-dev-backup` →
+      Settings → Trusted Publisher → GitHub Actions，填 user `haotian-lu-prog` /
+      repo `dsh-dev-backup` / workflow `publish.yml`（Environment 留空）并保存（要过 passkey 2FA）。
+      **配好后不需要重发 Release**：直接重跑那次失败的 CI 即可 ——
+      `gh run rerun 36990764996 -R haotian-lu-prog/dsh-dev-backup`（它会重新走 tag 校验 → 发现
+      1.1.0 还不在 registry → `npm publish --provenance`）。
+      - 2026-10-02 实测：**CLI 配不了**。`npm trust github dsh-dev-backup --file publish.yml --repo
+        haotian-lu-prog/dsh-dev-backup --allow-publish` 先说「Two-factor authentication is required」，
+        然后 `E403 403 Forbidden - GET .../-/package/dsh-dev-backup/trust` —— 本机那个开了
+        Bypass 2FA 的 granular token 读/写 trust 配置都被拒（npm 正在收紧 bypass-2FA token：
+        不再允许改账号设置与直接发布）。**所以只能网页配。**
+      - 配好之后建议删掉那个 token（`npm token list` 查，或 Access Tokens 页面删），
+        本机再 `npm config delete //registry.npmjs.org/:_authToken`；
+        此后发 Release 即自动发布，不再需要任何长期凭据。
 - [x] ~~2026-10-01T08:59:35Z 之后开市场 PR~~ → **已提交**：
       <https://github.com/awesome-dsh-plugin/awesome-dsh-plugin/pull/6322>
   - 开 PR 前先 rebase 到当时的上游 `main`（我们落后 20 个提交），rebase 干净，
