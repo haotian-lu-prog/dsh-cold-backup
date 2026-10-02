@@ -4,7 +4,7 @@
 
 ## 当前写者
 
-- 工具：（空 —— 2026-10-02 DSH 会话已收工：**上游联动 → 1.1.1**）
+- 工具：（空 —— 2026-10-02 DSH 会话已收工：**上游联动 → 1.1.1 已发布 npm，带 provenance**）
 - 分支：main
 - 开始时间：—
 - 本轮：**上游联动** —— 冷备引擎已抽成公开 CLI
@@ -42,6 +42,17 @@
    已把 Release asset 换成 **registry 那一份**（sha256 `03a06d8f…`），恢复「asset == 已发布产物」；
    本地那份 `.tgz` 也已对齐。要复现「三处字节一致」，得让本机 npm 与 CI 的版本相同。
    权威口径：registry 的 `dist.integrity` 与 provenance 的 subject sha512 一致（`48985eb8…` 开头）。
+
+**2026-10-02 追加（五）：`v1.1.1`（上游联动）已发布 npm** —— `dist-tags.latest = 1.1.1`，带 provenance。
+两个新事实：
+1. **这次是直接发布，不再走 staging 批准**：CI 日志直接给 `+ dsh-dev-backup@1.1.1`
+   （说明 trusted publisher 已从 allow stage publish 改成 allow publish，「下一步」里那个选择题有答案了）。
+   唯一的等待是 registry 传播，实测约 **2 分钟**才 `npm view` 得到。
+2. **「asset == 已发布产物」这条不变量继续成立**：Release asset 已换成 registry 那一份
+   （sha256 `c7a46754a22eb677f0f6a7f978855d08a54048162ba317511073ef06e32a669d`，20950 字节）。
+   本机 `npm pack` 的字节仍与 registry 不同（npm 版本不同），**解包后内容逐文件一致** —— 与 1.1.0 同一个现象。
+   校验侧：registry `dist.shasum` = CI 日志里的 `c8d0de58b4b9bf8f0190af03ece5c9da6d6dbf42`；
+   `npm audit signatures` 报「4 packages have verified registry signatures / 2 packages have verified attestations」。
 
 **2026-10-02 追加：已评估并否决「把 `dev-backup-runner` 复刻进本插件」——结论是只取只读呈现层，
 不搬引擎/调度/权限；理由与本轮实测证据见 `docs/decisions.md` 顶部。**
@@ -132,15 +143,16 @@
 ## 下一步
 
 - [x] ~~重新登录 npm 并发布~~ → 已完成，见上一节（含三方校验和比对与从 npm 装的端到端）。
-- [x] ~~配 trusted publishing~~ → **已配好并发布成功**（见「当前状态（四）」）。留下的选择题：
-      要不要在 npm 侧把该 trusted publisher 改成 **allow publish**（现在给的是 allow stage publish）——
-      现在每次发版都会进 staging，需要在 npm 上批准一次才真正上线。
+- [x] ~~配 trusted publishing~~ → **已配好，且已改成 allow publish**：1.1.1 是**直接发布**的，
+      不再进 staging、不需要在 npm 上批准一次（见「当前状态（五）」）。
+- [x] ~~上游联动：把 README / 配置示例从作者私有路径指向公开的 `dev-backup`~~ → 已随 **1.1.1** 发布。
 - [ ] **（建议，需要人确认）删掉临时 token**：本机 `~/.npmrc` 里那个开了 Bypass 2FA 的
       granular access token 已经不需要了（发布改走 OIDC），而 npm 正在收紧这类 token。
       命令：`npm token list` 查 → Access Tokens 页面删 → 本机 `npm config delete //registry.npmjs.org/:_authToken`。
-- [ ] **1.1.0 还没做「真机 Harness E2E」**：0.2.0-rc.2 的端到端证据是 1.0.0 那一轮的
-      （`docs/evidence/e2e-0.2.0-rc.2.md`）。1.1.0 的增量是**新增可选字段**，已有单测 28 项 +
-      「插件真跑脚本、解析出 16 个目标」的集成检查，但**没在活的 Harness 里装过**。
+- [ ] **1.1.1 还没做「真机 Harness E2E」**：0.2.0-rc.2 的端到端证据是 1.0.0 那一轮的
+      （`docs/evidence/e2e-0.2.0-rc.2.md`）。1.1.0 的增量是**新增可选字段**（已有单测 28 项 +
+      「插件真跑脚本、解析出 16 个目标」的集成检查），1.1.1 只改文档与文案 ——
+      **这两版都没在活的 Harness 里装过**。
 - [ ] ~~配 trusted publishing（原卡点，保留原始记录以免下次又踩）~~：到 npm → `dsh-dev-backup` →
       Settings → Trusted Publisher → GitHub Actions，填 user `haotian-lu-prog` /
       repo `dsh-dev-backup` / workflow `publish.yml`（Environment 留空）并保存（要过 passkey 2FA）。
