@@ -41,6 +41,12 @@
   `cold-backup.status/1`）。
 - `docs/evidence/e2e-0.2.0-rc.2.md` **原样保留**（改名前那次真机运行的真实记录，改了就是伪造证据），
   只在文件头加了改名说明。
+- **真机 E2E 补齐**：新增证据文件第 8 节（隔离 `DSH_HOME` + 从 npm 装 `dsh-cold-backup@1.1.1`）——
+  `# == dsh-cold-backup` 生效、`GET /dsh-cold-backup/status` 返回真实状态
+  （`level=ok`，`freshness.path` = 本机 `~/Library/Logs/cold-backup/last-ok`，`ageHours≈0.009`）、
+  Client 模块以包名注册、bundle 取回 **HTTP 200 / 21592 字节**（与仓库 `client.js` 逐字节相同）、
+  启动日志无 error/warn。换句话说：**「私有脚本 → 日志目录 → 插件默认值 → 面板」四条腿
+  现在叫的是同一套名字**。
 - 发布面（同一天完成）：
   - GitHub 仓库改名 `dsh-dev-backup` → **`dsh-cold-backup`**（旧 URL 301 重定向，已实测）；
     Website 按公约回填成 <https://www.npmjs.com/package/dsh-cold-backup>。
@@ -196,10 +202,13 @@
       （`cold-backup@1.0.2`、`dsh-cold-backup@1.1.1` 都是这么发的）。
       **等两个新包名都配好 trusted publishing 之后再删**：
       `npm token list` 查 → Access Tokens 页面删 → `npm config delete //registry.npmjs.org/:_authToken`。
-- [ ] **1.1.1 还没做「真机 Harness E2E」**：0.2.0-rc.2 的端到端证据是 1.0.0 那一轮的
-      （`docs/evidence/e2e-0.2.0-rc.2.md`）。1.1.0 的增量是**新增可选字段**（已有单测 28 项 +
-      「插件真跑脚本、解析出 16 个目标」的集成检查），1.1.1 只改文档与文案 ——
-      **这两版都没在活的 Harness 里装过**。
+- [x] ~~**1.1.1 还没做「真机 Harness E2E」**~~ → **改名这一轮补上了**：
+      `docs/evidence/e2e-0.2.0-rc.2.md` 新增第 8 节 —— 隔离 `DSH_HOME`、从 **npm registry**
+      装 `dsh-cold-backup@1.1.1`、`--dump-config` 里出现 `# == dsh-cold-backup`、
+      `GET /dsh-cold-backup/status` 返真数据（`level=ok`，`freshness.path` 就是本机新日志目录）、
+      Client 模块以包名注册、bundle 取回 HTTP 200 / 21592 字节（与仓库 `client.js` 逐字节相同，
+      只多服务器追加的 sourceMappingURL）、启动日志无 error/warn。
+      **没验的**：GUI 里点开设置页的渲染，以及 provenance（本机构建发的，无 provenance）。
 - [ ] ~~配 trusted publishing（原卡点，保留原始记录以免下次又踩）~~：到 npm → `dsh-dev-backup` →
       Settings → Trusted Publisher → GitHub Actions，填 user `haotian-lu-prog` /
       repo `dsh-dev-backup` / workflow `publish.yml`（Environment 留空）并保存（要过 passkey 2FA）。
