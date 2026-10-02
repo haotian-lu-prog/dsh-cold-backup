@@ -4,6 +4,22 @@
 
 ---
 
+## 2026-10-02 — 上游联动：示例指向公开 CLI `dev-backup`，但**不做 PATH 自动探测**
+
+- **背景**：冷备引擎已经抽成公开的 [`dev-backup`](https://www.npmjs.com/package/dev-backup)
+  （npm + GitHub，接口与产物契约不变）。而本包是公开包，README 与配置项示例里却写着一个**只有作者
+  机器上存在**的路径 `~/dev/_shared/bin/backup-dev.sh` —— 对陌生人是死链，对作者也只是众多形态之一。
+- **选项**：A 示例改成 `dev-backup --status --json`（公开 CLI 的默认安装形态）；
+  B 再加一层「PATH 里探测到 `dev-backup` 就自动用它」的推断；C 什么都不改。
+- **结论**：**A**，**不做 B**。B 看起来贴心，但与 2026-09-30 那条「不做扫描推断」的决定冲突：
+  猜错会给出一块**误导性的绿色**，而备份面板最不能做的就是骗人。示例是给人看的、配置是显式的。
+- **顺带对齐**：`freshnessFile` / `failureFile` 的默认值（`~/Library/Logs/dev-backup/{last-ok,last-failure}`）
+  **正好就是 `dev-backup` 在 macOS 上的默认日志目录** —— 也就是说「装 dev-backup + 装本插件」
+  这条路一个字段都不用改。这条以前是「作者的约定」，现在是「公开引擎的默认」，README 里改写清楚。
+- **代价 / 后续**：作者的机器仍跑私有脚本，所以本机要把 `statusJsonCommand` 填成
+  `~/dev/_shared/bin/backup-dev.sh --status --json`（插件配置项，不是代码）。两处 UI 文案
+  （`client.js` 的 `detailIntro`）改成不点名具体脚本的说法，免得对任何一方撒谎。
+
 ## 2026-10-02 — 新增 `dev-backup.status/1` 结构化源：判定权交给脚本
 
 - **背景**：面板（macOS app）与本插件看的是同一批产物，但**判定规则各写了一份**：插件用 `>=`、

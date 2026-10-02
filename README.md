@@ -17,7 +17,7 @@
 | 失败日志 | 最近一次**出问题**的记录 | 取最后一行（约定会追加，所以最后一行最新） |
 | launchd 任务 | 定时任务是否加载、上次退出码 | `launchctl print gui/<uid>/<label>` |
 | 状态命令（可选） | 任意自检命令 | 退出码 0 视为正常，输出会显示在面板里 |
-| JSON 状态命令（可选） | 结构化状态文档 | 跑一条命令（如 `backup-dev.sh --status --json`），读它的 `dev-backup.status/1` JSON；**解析成功时以它为准**，并显示逐目标明细 |
+| JSON 状态命令（可选） | 结构化状态文档 | 跑一条命令（如 `dev-backup --status --json`），读它的 `dev-backup.status/1` JSON；**解析成功时以它为准**，并显示逐目标明细 |
 
 判定规则只有一条值得记住：**只要失败记录没有被后来的成功「盖过」，就报有问题**。
 用的是 `>=` 而不是 `>`——因为一次运行可能在同一秒里既写下成功时间戳、又留下失败记录，
@@ -55,7 +55,7 @@ dsh --profile web-backup
 
 ```sh
 npm pack
-dsh plugin --profile web-backup add ./dsh-dev-backup-1.1.0.tgz
+dsh plugin --profile web-backup add ./dsh-dev-backup-<版本>.tgz
 ```
 
 ## 配置
@@ -68,11 +68,13 @@ dsh plugin --profile web-backup add ./dsh-dev-backup-1.1.0.tgz
 | `failureFile` | `~/Library/Logs/dev-backup/last-failure` | 失败记录（留空关闭） |
 | `launchdLabel` | 空 | 要检查的 LaunchAgent label（留空关闭） |
 | `statusCommand` | 空 | 可选自检命令，退出码 0 视为正常 |
-| `statusJsonCommand` | 空 | 可选：打印 `dev-backup.status/1` JSON 的命令（例如 `~/dev/_shared/bin/backup-dev.sh --status --json`）。解析成功时以它的判定为准，并显示逐目标明细 |
+| `statusJsonCommand` | 空 | 可选：打印 `dev-backup.status/1` JSON 的命令（例如 `dev-backup --status --json`）。解析成功时以它的判定为准，并显示逐目标明细 |
 | `staleAfterHours` | `36` | 超过这么多小时没成功就报「需要留意」 |
 | `refreshSeconds` | `30` | 面板轮询间隔 |
 
-默认值直接对应**冷备约定**（`last-ok` 存 epoch 秒、`last-failure` 追加记录）。
+默认值直接对应**冷备约定**（`last-ok` 存 epoch 秒、`last-failure` 追加记录）——
+也正是配套备份引擎 [`dev-backup`](https://www.npmjs.com/package/dev-backup) 在 macOS 上的默认位置，
+所以「用 dev-backup + 装本插件」这条路**一个字段都不用改**。
 换成别的备份方案时，只要把路径指过去即可，不需要这个约定本身。
 
 举例：如果你的备份是 launchd 任务 `com.example.nightly-backup`、成功时间写在 `~/.backup/last-ok`，
@@ -96,7 +98,7 @@ npm test
 
 ## JSON 契约（`dev-backup.status/1`）
 
-`statusJsonCommand` 读的是一份**跨工具共用**的判定：macOS 面板（`~/dev/_shared/app`）读的是同一份，
+`statusJsonCommand` 读的是一份**跨工具共用**的判定：配套的 macOS 面板（`Backup.app`）读的是同一份，
 所以两处显示不可能各说各话。
 
 | 字段 | 含义 |
@@ -111,11 +113,24 @@ npm test
 已经漂移过一次）。没配、或输出不是合法文档时，回落到上面三种通用来源；「配了但用不了」会明确报成问题，
 **不会静默回落**。
 
-## 与冷备约定（dev-backup）的关系
+## 与冷备方案（`dev-backup`）的关系
 
-本插件是**冷备方案的 UI 前端**，不替代备份本身。冷备方案指的是：一个定时任务把
+本插件是**备份方案的 UI 前端**，不替代备份本身。冷备方案指的是：一个定时任务把
 「最近成功时间」写进一个文件、把失败追加进一个日志，需要时再配一个 launchd 任务兜底。
 插件只读这些产物，不写、不触发、不删除任何东西——所以它可以安全地常开。
+
+**配套的备份引擎是 [`dev-backup`](https://github.com/haotian-lu-prog/dev-backup)**
+（`npm i -g dev-backup`，无依赖的 bash CLI，macOS / Linux）：
+
+```sh
+npm i -g dev-backup      # 备份引擎：bundle + 快照 + 配置白名单 → 你的同步目录
+dev-backup --init        # 生成配置，填 ROOT 与 DEST
+dev-backup schedule install
+```
+
+它**不是必需的**：任何写出 `last-ok` / `last-failure`、或能输出 `dev-backup.status/1` 文档的
+备份方案都能接这个面板。反过来，`dev-backup` 也不依赖本插件——它自带 `--status`，
+本插件只是把同一份判定搬进了 Harness 的 UI。
 
 ## 许可证
 
