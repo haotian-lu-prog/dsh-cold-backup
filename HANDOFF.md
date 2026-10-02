@@ -4,17 +4,18 @@
 
 ## 当前写者
 
-- 工具：（空 —— 2026-10-02 DSH 会话已收工：**1.1.0 已发布 npm，带 provenance**）
+- 工具：（空 —— 2026-10-02 DSH 会话已收工：**上游联动 → 1.1.1**）
 - 分支：main
 - 开始时间：—
-- 本轮一：新增 `statusJsonCommand` 消费 `dev-backup.status/1`（与 macOS 面板同一份判定）、
-  面板渲染逐目标明细、28 项测试全绿。
-- 本轮二：`package.json` 1.0.0 → **1.1.0**，tag `v1.1.0` + GitHub Release + asset 已建。
-- 本轮三：trusted publishing 配好后**发布成功** —— `dsh-dev-backup@1.1.0`，
-  `dist-tags.latest = 1.1.0`，发布时刻 `2026-10-02T09:44:12Z`，带 **SLSA provenance**
-  （workflow `publish.yml`、ref `refs/tags/v1.1.0`、commit `56d8573`）。
-  三方校验：registry 产物 = Release asset **逐字节一致**，sha256
-  `03a06d8f532220ba58158cf9a89522285362f5a115393e11f9e3b5d4f5883372`。
+- 本轮：**上游联动** —— 冷备引擎已抽成公开 CLI
+  [`dev-backup`](https://www.npmjs.com/package/dev-backup)（npm + GitHub，接口与产物契约不变），
+  本包作为它的 UI 前端跟着对齐：① `statusJsonCommand` 的示例从**作者私有路径**改成
+  `dev-backup --status --json`；② README（中/英）写清两者的关系，并点明「本插件的默认文件路径
+  **就是** `dev-backup` 在 macOS 上的默认日志目录，所以那条路一个字段都不用改」；
+  ③ 两处 UI 文案（`client.js` 的 `detailIntro`）不再点名具体脚本，对任何接入方案都不撒谎；
+  ④ README 里的 tarball 名改成 `<版本>` 占位符，免得每次发版都留一处过期的示例。
+  **不做 PATH 自动探测**（猜错会给出一块误导性的绿色）——理由见 `docs/decisions.md` 顶部。
+- 开工前已核对：本地 main 与 `origin/main` 一致，无需 rebase。
 
 > 一个仓库同一时刻只允许一个写者。下一位把上一行改成自己，并先读完下面的状态。
 

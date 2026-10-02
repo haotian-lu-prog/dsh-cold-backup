@@ -7,7 +7,7 @@
 //   1. Generic sources — a last-success timestamp file, a failure log, a launchd job, a status
 //      command. Works with any backup scheme, and stays read-only.
 //   2. `statusJsonCommand` — a command that prints a `dev-backup.status/1` document
-//      (`backup-dev.sh --status --json` does). When it parses, **its verdict is authoritative**
+//      (`dev-backup --status --json` does). When it parses, **its verdict is authoritative**
 //      and the panel renders its per-target detail. This is the very same document the macOS
 //      panel consumes, so the two UIs cannot drift apart — they did before, once: the panel
 //      compared `>` where we compare `>=`, and silently hid the case we report.
@@ -36,6 +36,10 @@ const execFileAsync = promisify(execFile)
  * The dev-backup convention: a backup run writes the epoch seconds of its last success to
  * `last-ok`, and appends failures to `last-failure`. Anything else can be pointed at these
  * paths instead — the plugin only cares that `last-ok` holds a timestamp.
+ *
+ * The reference implementation is the `dev-backup` CLI (npm: `dev-backup`, macOS + Linux), and
+ * these two defaults are exactly its defaults on macOS — so the common setup needs no config.
+ * Any other scheme writing the same two files works just as well.
  */
 export const DEFAULT_FRESHNESS_FILE = '~/Library/Logs/dev-backup/last-ok'
 export const DEFAULT_FAILURE_FILE = '~/Library/Logs/dev-backup/last-failure'
@@ -54,7 +58,7 @@ export const Config = z.object({
     .description('Optional command; exit code 0 means healthy. Its output is shown in the panel.'),
   statusJsonCommand: z.string().default('').volatile()
     .description('Optional command printing a dev-backup.status/1 JSON document, e.g. '
-      + '"~/dev/_shared/bin/backup-dev.sh --status --json". When it parses, its verdict drives the '
+      + '"dev-backup --status --json" (npm i -g dev-backup). When it parses, its verdict drives the '
       + 'panel and its per-target detail is shown. Empty to disable.'),
   staleAfterHours: z.natural().default(36).volatile()
     .description('A last success older than this many hours is reported as stale.'),
