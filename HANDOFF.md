@@ -41,6 +41,18 @@
   `cold-backup.status/1`）。
 - `docs/evidence/e2e-0.2.0-rc.2.md` **原样保留**（改名前那次真机运行的真实记录，改了就是伪造证据），
   只在文件头加了改名说明。
+- 发布面（同一天完成）：
+  - GitHub 仓库改名 `dsh-dev-backup` → **`dsh-cold-backup`**（旧 URL 301 重定向，已实测）；
+    Website 按公约回填成 <https://www.npmjs.com/package/dsh-cold-backup>。
+  - npm 新包 **`dsh-cold-backup@1.1.1`** 已发布（本机 `npm publish`，**无 provenance** ——
+    新包名在 npm 上没有 trusted publisher，CI 那条路得重新配一次，见「下一步」）。
+  - 市场投稿换成 PR **#6410**（`data/plugins/haotian-lu-prog__dsh-cold-backup.yml`，+1 文件 / +6 行，
+    以最新上游 `main` 为基）。**旧的 #6322 被 GitHub 自动关闭**：改名 fork 的 head 分支等于让
+    该分支消失，PR 就会自动 close —— 已在 #6322 上留说明指向 #6410。
+  - **旧包 `dsh-dev-backup` 的 deprecate 没做成**：npm 回
+    `403 Two-factor authentication is required to publish this package but an automation token was
+    specified`。同一个 token 能 deprecate `dev-backup`、却动不了这个包 —— 得用过了 2FA 的会话跑
+    （见「下一步」）。
 
 **2026-10-02 追加（二）：插件已能消费 `dev-backup.status/1`（`statusJsonCommand`），
 与 macOS 面板从此读同一份判定；只读性质不变。`npm test` 28/28。**
@@ -163,13 +175,27 @@
 
 ## 下一步
 
+- [ ] **（改名后新增，优先）给新包名 `dsh-cold-backup` 配 trusted publishing**：trusted publisher
+      是**按包**配的，旧名 `dsh-dev-backup` 那份配置对新名字不生效 —— 因此 CI 的 `publish.yml`
+      现在发不出去（`PUT` 404），1.1.1 是本机 `npm publish` 发的（无 provenance）。
+      npm → `dsh-cold-backup` → Settings → Trusted Publisher → GitHub Actions：
+      user `haotian-lu-prog` / repo `dsh-cold-backup` / workflow `publish.yml` / Environment **留空**，
+      并选 **allow publish**（别选 stage publish，否则又要走一次「批准」）。
+- [ ] **旧包 `dsh-dev-backup` 还没 deprecate**（npm 拒了自动化 token，原因见「当前状态（六）」）。
+      用过了 2FA 的会话跑一次：
+      `npm deprecate dsh-dev-backup@"*" "Renamed to dsh-cold-backup on 2026-10-02 (已改名为 dsh-cold-backup). Install: dsh plugin add dsh-cold-backup"`
+      （旧包的 README 想改成指向新名，只能发一个新版本，而那个包同样要 2FA。）
+- [ ] **盯 #6410 的 CI**：`check`（pr-gate）预期与 #6322 一样通过，之后就是维护者人工评审。
 - [x] ~~重新登录 npm 并发布~~ → 已完成，见上一节（含三方校验和比对与从 npm 装的端到端）。
 - [x] ~~配 trusted publishing~~ → **已配好，且已改成 allow publish**：1.1.1 是**直接发布**的，
       不再进 staging、不需要在 npm 上批准一次（见「当前状态（五）」）。
 - [x] ~~上游联动：把 README / 配置示例从作者私有路径指向公开的 `dev-backup`~~ → 已随 **1.1.1** 发布。
-- [ ] **（建议，需要人确认）删掉临时 token**：本机 `~/.npmrc` 里那个开了 Bypass 2FA 的
-      granular access token 已经不需要了（发布改走 OIDC），而 npm 正在收紧这类 token。
-      命令：`npm token list` 查 → Access Tokens 页面删 → 本机 `npm config delete //registry.npmjs.org/:_authToken`。
+- [ ] **（建议，需要人确认）临时 token 现在还不能删**：本机 `~/.npmrc` 里那个开了 Bypass 2FA 的
+      granular access token —— 原以为「发布改走 OIDC 后就不需要了」，但改名让两个包都换了名字，
+      而新包名**都还没有** trusted publisher，所以本机 `npm publish` 仍是当前唯一的发布通道
+      （`cold-backup@1.0.2`、`dsh-cold-backup@1.1.1` 都是这么发的）。
+      **等两个新包名都配好 trusted publishing 之后再删**：
+      `npm token list` 查 → Access Tokens 页面删 → `npm config delete //registry.npmjs.org/:_authToken`。
 - [ ] **1.1.1 还没做「真机 Harness E2E」**：0.2.0-rc.2 的端到端证据是 1.0.0 那一轮的
       （`docs/evidence/e2e-0.2.0-rc.2.md`）。1.1.0 的增量是**新增可选字段**（已有单测 28 项 +
       「插件真跑脚本、解析出 16 个目标」的集成检查），1.1.1 只改文档与文案 ——
