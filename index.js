@@ -1,4 +1,4 @@
-// dsh-dev-backup — Host half.
+// dsh-cold-backup — Host half.
 //
 // Answers one question, from inside the Harness: *did my scheduled backup actually run,
 // and when?* The answer is served as JSON on a private route that the Client half polls.
@@ -6,8 +6,8 @@
 // Two kinds of answer:
 //   1. Generic sources — a last-success timestamp file, a failure log, a launchd job, a status
 //      command. Works with any backup scheme, and stays read-only.
-//   2. `statusJsonCommand` — a command that prints a `dev-backup.status/1` document
-//      (`dev-backup --status --json` does). When it parses, **its verdict is authoritative**
+//   2. `statusJsonCommand` — a command that prints a `cold-backup.status/1` document
+//      (`cold-backup --status --json` does). When it parses, **its verdict is authoritative**
 //      and the panel renders its per-target detail. This is the very same document the macOS
 //      panel consumes, so the two UIs cannot drift apart — they did before, once: the panel
 //      compared `>` where we compare `>=`, and silently hid the case we report.
@@ -21,28 +21,28 @@ import { join } from 'node:path'
 import { promisify } from 'node:util'
 import z from '@deepseek-ai/schemastery'
 
-export const name = 'dsh-dev-backup'
+export const name = 'dsh-cold-backup'
 export const inject = ['webServer']
 
 /** Profile entry id from `cordis.patch.yml`; it names this plugin's settings form. */
-export const ENTRY_ID = 'dsh-dev-backup'
+export const ENTRY_ID = 'dsh-cold-backup'
 
 /** Route the Client half polls. Distinct from any shipped route. */
-export const STATUS_PATH = '/dsh-dev-backup/status'
+export const STATUS_PATH = '/dsh-cold-backup/status'
 
 const execFileAsync = promisify(execFile)
 
 /**
- * The dev-backup convention: a backup run writes the epoch seconds of its last success to
+ * The cold-backup convention: a backup run writes the epoch seconds of its last success to
  * `last-ok`, and appends failures to `last-failure`. Anything else can be pointed at these
  * paths instead — the plugin only cares that `last-ok` holds a timestamp.
  *
- * The reference implementation is the `dev-backup` CLI (npm: `dev-backup`, macOS + Linux), and
+ * The reference implementation is the `cold-backup` CLI (npm: `cold-backup`, macOS + Linux), and
  * these two defaults are exactly its defaults on macOS — so the common setup needs no config.
  * Any other scheme writing the same two files works just as well.
  */
-export const DEFAULT_FRESHNESS_FILE = '~/Library/Logs/dev-backup/last-ok'
-export const DEFAULT_FAILURE_FILE = '~/Library/Logs/dev-backup/last-failure'
+export const DEFAULT_FRESHNESS_FILE = '~/Library/Logs/cold-backup/last-ok'
+export const DEFAULT_FAILURE_FILE = '~/Library/Logs/cold-backup/last-failure'
 
 export const Config = z.object({
   // `volatile()` keeps the field editable without remounting the plugin: the value reference is
@@ -57,8 +57,8 @@ export const Config = z.object({
   statusCommand: z.string().default('').volatile()
     .description('Optional command; exit code 0 means healthy. Its output is shown in the panel.'),
   statusJsonCommand: z.string().default('').volatile()
-    .description('Optional command printing a dev-backup.status/1 JSON document, e.g. '
-      + '"dev-backup --status --json" (npm i -g dev-backup). When it parses, its verdict drives the '
+    .description('Optional command printing a cold-backup.status/1 JSON document, e.g. '
+      + '"cold-backup --status --json" (npm i -g cold-backup). When it parses, its verdict drives the '
       + 'panel and its per-target detail is shown. Empty to disable.'),
   staleAfterHours: z.natural().default(36).volatile()
     .description('A last success older than this many hours is reported as stale.'),
@@ -75,7 +75,7 @@ export function expandHome(input, home = homedir()) {
 }
 
 /**
- * `last-ok` holds epoch seconds in the dev-backup convention, but a plain freshness file may
+ * `last-ok` holds epoch seconds in the cold-backup convention, but a plain freshness file may
  * hold anything. Accept a bare number, otherwise fall back to the file's mtime.
  */
 export function readTimestamp(raw, mtimeMs) {
@@ -107,7 +107,7 @@ export function parseLaunchctlPrint(text) {
   return result
 }
 
-/** Last non-empty line of the failure log; the dev-backup convention appends, so this is newest. */
+/** Last non-empty line of the failure log; the cold-backup convention appends, so this is newest. */
 export function readLastFailureLine(raw) {
   const lines = String(raw ?? '').split('\n').filter(line => line.trim().length > 0)
   if (lines.length === 0) return null
@@ -122,7 +122,7 @@ export function readLastFailureLine(raw) {
 }
 
 /** Schema prefix of the JSON contract shared with the macOS panel (and any other consumer). */
-export const STATUS_JSON_SCHEMA_PREFIX = 'dev-backup.status/'
+export const STATUS_JSON_SCHEMA_PREFIX = 'cold-backup.status/'
 
 function stringOr(value, fallback) {
   return typeof value === 'string' && value.length > 0 ? value : fallback
@@ -133,7 +133,7 @@ function numberOr(value, fallback) {
 }
 
 /**
- * Parse the `dev-backup.status/1` contract. Returns null for anything we do not recognise:
+ * Parse the `cold-backup.status/1` contract. Returns null for anything we do not recognise:
  * a foreign, newer or malformed document must never be rendered as if it were ours (the panel
  * falls back to the generic sources instead, and says so).
  *
@@ -227,7 +227,7 @@ export function evaluateStatus(input, options = {}) {
   const launchd = input.launchd ?? null
   const failure = input.failure ?? null
 
-  // 1. A parsed dev-backup.status/1 document wins outright: the script already applied every rule,
+  // 1. A parsed cold-backup.status/1 document wins outright: the script already applied every rule,
   //    and the macOS panel shows that same document. Re-deriving the rules here is how the two
   //    implementations drifted apart before (the panel compared `>` where we compare `>=`).
   const document = input.document ?? null
@@ -273,7 +273,7 @@ export function evaluateStatus(input, options = {}) {
   }
 
   // A failure that the last success does not supersede is the strongest signal there is.
-  // Note `>=`, not `>`: the dev-backup convention treats the mere presence of a `last-failure`
+  // Note `>=`, not `>`: the cold-backup convention treats the mere presence of a `last-failure`
   // record as "the last run had a problem", and a single run can both record one and write
   // `last-ok` within the same second. Using `>` would silently hide exactly that case.
   if (failure && Number.isFinite(failure.at)) {
@@ -483,7 +483,7 @@ export function apply(ctx, config) {
           // Say *why* in the payload as well as the log: a bare "collection-failed" is
           // undebuggable from the browser, where the user actually sees it.
           const detail = String(error?.message ?? error)
-          ctx.logger.warn(`dsh-dev-backup: status collection failed: ${detail}`)
+          ctx.logger.warn(`dsh-cold-backup: status collection failed: ${detail}`)
           res.writeHead(500, { 'content-type': 'application/json; charset=utf-8' })
           res.end(JSON.stringify({ error: 'collection-failed', detail }))
           return

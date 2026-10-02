@@ -2,6 +2,35 @@
 
 倒序追加。每条写清：背景、选项、结论、代价。三家工具都读这个文件，所以**不要只把决定留在会话里**。
 
+> 读旧条目时注意：**2026-10-02 改名之前的条目里出现的 `dsh-dev-backup` / `dev-backup` /
+> `dev-backup.status/1` / `~/Library/Logs/dev-backup` 等名字，是当时的真实名称**，不改写
+> （它们是历史事实，改了就撒谎）。映射表见 `README.md` 与引擎仓库的
+> `docs/compatibility.md` §7。
+
+---
+
+## 2026-10-02 — 改名：`dsh-dev-backup` → `dsh-cold-backup`
+
+- **背景**：名字里的 `dev` 既不准确也不自解释 —— 本插件监视的是**冷备**（离线快照 + 可还原），
+  不是实时同步；配套引擎 CLI 同步改名 `dev-backup` → `cold-backup`。作者拍板：名字里要出现「冷备」。
+- **选项**：A 只改包名，路由 / 默认路径 / schema 前缀继续用旧名（改动最小，但从此两套名字并存 ——
+  正是要避免的那种不一致）；B 全部改，干净断代；C 新名为主 + 兼容旧名（连 `dev-backup.status/` 也认）。
+- **结论**：**B**。两个包 2026-09-30 才发布，已知用户只有作者本人 —— 这个窗口不会一直在，
+  此时断代最便宜；留下 C 那层兼容就要永久维护两套前缀。
+  换名清单：包名 / `cordis.patch.yml` 的 `id` 与 `name` / `ENTRY_ID` / Client 模块 id
+  （**四者同名**这条硬约束不变，测试照旧交叉断言）、路由 `/dsh-cold-backup/status`、
+  默认路径 `~/Library/Logs/cold-backup/{last-ok,last-failure}`、schema 前缀 `cold-backup.status/`、
+  locale 命名空间 `settings.dshColdBackup`、组件名 `ColdBackupSection`。
+- **代价 / 后续**：
+  ① **npm 不支持改包名** —— 旧包 `dsh-dev-backup` 只能 deprecate（附指向新名的说明）；
+     `npm i dsh-dev-backup` 仍能装到旧版本。
+  ② 市场条目（PR #6322）的文件名由仓库 URL 推导（`<owner>__<repo>.yml`），GitHub 仓库改名后
+     条目也必须跟着改名，否则市场脚本的 slug 对不上、CI 会红。
+  ③ `docs/evidence/e2e-0.2.0-rc.2.md` 是**改名前**那次真机运行的记录：原样保留（改了就是伪造证据），
+     只在文件头加一段改名说明。
+  ④ 1.1.1 的「真机 Harness E2E」本来就还没做（见 `HANDOFF.md` 的「下一步」），所以这次改名
+     **没有**新的端到端证据 —— 不能拿 1.0.0 那份记录冒充。
+
 ---
 
 ## 2026-10-02 — 上游联动：示例指向公开 CLI `dev-backup`，但**不做 PATH 自动探测**

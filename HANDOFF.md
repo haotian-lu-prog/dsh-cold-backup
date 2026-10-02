@@ -4,10 +4,15 @@
 
 ## 当前写者
 
-- 工具：（空 —— 2026-10-02 DSH 会话已收工：**上游联动 → 1.1.1 已发布 npm，带 provenance**）
+- 工具：DSH（2026-10-02 晚）—— **改名进行中**
 - 分支：main
-- 开始时间：—
-- 本轮：**上游联动** —— 冷备引擎已抽成公开 CLI
+- 开始时间：2026-10-02 22:15 (+09:00)
+- 本轮：**改名** —— 插件 `dsh-dev-backup` → **`dsh-cold-backup`**，与引擎 CLI
+  `dev-backup` → **`cold-backup`** 同步：包名、Cordis 入口 id、路由 `/dsh-cold-backup/status`、
+  默认路径 `~/Library/Logs/cold-backup/*`、JSON 契约前缀 `cold-backup.status/` 全部换成新名，
+  **不留旧名兼容**。旧 npm 包 deprecate、GitHub 仓库改名（旧 URL 自动重定向）、市场条目跟着换。
+  本文件下文与 `docs/evidence/` 里的旧名是当时的真实名称，作为历史记录不回改。
+- 上一轮：**上游联动** —— 冷备引擎已抽成公开 CLI
   [`dev-backup`](https://www.npmjs.com/package/dev-backup)（npm + GitHub，接口与产物契约不变），
   本包作为它的 UI 前端跟着对齐：① `statusJsonCommand` 的示例从**作者私有路径**改成
   `dev-backup --status --json`；② README（中/英）写清两者的关系，并点明「本插件的默认文件路径
@@ -20,6 +25,22 @@
 > 一个仓库同一时刻只允许一个写者。下一位把上一行改成自己，并先读完下面的状态。
 
 ## 当前状态
+
+**2026-10-02 追加（六）：改名 —— 插件 `dsh-dev-backup` → `dsh-cold-backup`（本轮，已本地验证）。**
+
+- 目录 `~/dev/plugins/dsh-dev-backup` → `~/dev/plugins/dsh-cold-backup`。
+- 换名清单：包名、`cordis.patch.yml` 的 `id`/`name`、`ENTRY_ID`、Client 模块 id
+  （**四者同名**这条硬约束不变，测试照旧交叉断言）、路由 `/dsh-cold-backup/status`、
+  默认路径 `~/Library/Logs/cold-backup/{last-ok,last-failure}`、schema 前缀 `cold-backup.status/`、
+  locale 命名空间 `settings.dshColdBackup`、组件 `ColdBackupSection`、仓库 URL。
+  版本号仍是 **1.1.1**（同一份代码换个名字，不是新功能）。
+- 验证：`npm test` **28/28**；并对 13 个改动文件做了「纯词法替换」证明 —— 8 个文件逐字符等于
+  「旧内容套上改名规则」，其余 5 个的额外改动都是刻意加的（证据文件开头的改名说明、
+  `docs/market-submission.md` 的改名说明、`package.json` 关键词去重、本条 HANDOFF）。
+- 配套改动：引擎 CLI `dev-backup` → `cold-backup`（同一批次，JSON 契约前缀同步成
+  `cold-backup.status/1`）。
+- `docs/evidence/e2e-0.2.0-rc.2.md` **原样保留**（改名前那次真机运行的真实记录，改了就是伪造证据），
+  只在文件头加了改名说明。
 
 **2026-10-02 追加（二）：插件已能消费 `dev-backup.status/1`（`statusJsonCommand`），
 与 macOS 面板从此读同一份判定；只读性质不变。`npm test` 28/28。**

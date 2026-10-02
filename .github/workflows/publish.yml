@@ -1,11 +1,11 @@
-# Publish dsh-dev-backup to npm from a GitHub Release.
+# Publish dsh-cold-backup to npm from a GitHub Release.
 #
 # Authentication uses npm trusted publishing (OIDC), so no NPM_TOKEN secret is stored here.
 # Configure it once on npm after the package exists:
 #
 #   Package → Settings → Trusted Publisher → GitHub Actions
 #     Organization or user : haotian-lu-prog
-#     Repository           : dsh-dev-backup
+#     Repository           : dsh-cold-backup
 #     Workflow filename    : publish.yml
 #     Environment          : (leave empty)
 #
@@ -81,9 +81,9 @@ jobs:
         id: registry
         run: |
           version=$(node -p "require('./package.json').version")
-          if npm view "dsh-dev-backup@$version" version >/dev/null 2>&1; then
+          if npm view "dsh-cold-backup@$version" version >/dev/null 2>&1; then
             echo "published=true" >> "$GITHUB_OUTPUT"
-            echo "dsh-dev-backup@$version is already on the registry — nothing to publish"
+            echo "dsh-cold-backup@$version is already on the registry — nothing to publish"
           else
             echo "published=false" >> "$GITHUB_OUTPUT"
           fi

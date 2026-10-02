@@ -1,10 +1,10 @@
-// dsh-dev-backup — Client half.
+// dsh-cold-backup — Client half.
 //
 // Renders one Settings page that answers "is my backup still fresh?" and keeps asking the
 // Host half's route while it is open. Every module id below must equal the package name:
 // the Harness indexes the client module table by package name.
 window.__ModuleLoader__.load({
-  id: 'dsh-dev-backup',
+  id: 'dsh-cold-backup',
   factory: (require) => {
     const module = { exports: {} }
     const exports = module.exports
@@ -12,10 +12,10 @@ window.__ModuleLoader__.load({
     const { jsx, jsxs } = require('react/jsx-runtime')
     const React = require('react')
 
-    const styleId = 'dsh-dev-backup/client.css'
+    const styleId = 'dsh-cold-backup/client.css'
     if (typeof document !== 'undefined' && document.querySelector(`style[data-plugin-css=${JSON.stringify(styleId)}]`) === null) {
       const tag = document.createElement('style')
-      tag.dataset.plugin = 'dsh-dev-backup'
+      tag.dataset.plugin = 'dsh-cold-backup'
       tag.dataset.pluginCss = styleId
       tag.textContent = `
         .dshBackupSection{box-sizing:border-box;max-width:760px;color:var(--dsw-alias-label-primary);display:flex;flex-direction:column;gap:16px}
@@ -61,7 +61,7 @@ window.__ModuleLoader__.load({
         updatedAt: '更新于',
         loading: '正在读取状态…',
         unreachable: '拿不到状态：Host 半侧的路由没有响应。',
-        notConfigured: '还没有配置备份源。到「设置 → 插件」里给 dsh-dev-backup 填上状态文件路径，或指定一个 launchd 任务。',
+        notConfigured: '还没有配置备份源。到「设置 → 插件」里给 dsh-cold-backup 填上状态文件路径，或指定一个 launchd 任务。',
         lastSuccess: '最近成功',
         age: '距今',
         launchd: 'launchd 任务',
@@ -83,7 +83,7 @@ window.__ModuleLoader__.load({
         reasonUnconfigured: '未配置任何备份源',
         reasonStatusJsonFailed: '配置的 JSON 状态命令没有给出可解析的结果（回落不到别的来源）',
         detail: '冷备明细',
-        detailIntro: '来自备份引擎的 dev-backup.status/1 文档（与 macOS 面板同一份判定）。',
+        detailIntro: '来自备份引擎的 cold-backup.status/1 文档（与 macOS 面板同一份判定）。',
         detailCounts: '仓库 {repos} · 快照 {snapshots} · 配置 {configs} · 有问题 {problems} · 云盘残留 {orphans}',
         detailDirty: '{n} 个未提交改动',
         stateOk: '正常',
@@ -107,7 +107,7 @@ window.__ModuleLoader__.load({
         updatedAt: 'Updated',
         loading: 'Reading status…',
         unreachable: 'Status unavailable: the Host route did not respond.',
-        notConfigured: 'No backup source is configured yet. Open Settings → Plugins and give dsh-dev-backup a status file path, or name a launchd job.',
+        notConfigured: 'No backup source is configured yet. Open Settings → Plugins and give dsh-cold-backup a status file path, or name a launchd job.',
         lastSuccess: 'Last success',
         age: 'Age',
         launchd: 'launchd job',
@@ -129,7 +129,7 @@ window.__ModuleLoader__.load({
         reasonUnconfigured: 'No backup source is configured',
         reasonStatusJsonFailed: 'The configured JSON status command did not return a parsable document',
         detail: 'Backup detail',
-        detailIntro: "From the backup engine's dev-backup.status/1 document — the same verdict the macOS panel shows.",
+        detailIntro: "From the backup engine's cold-backup.status/1 document — the same verdict the macOS panel shows.",
         detailCounts: 'repos {repos} · snapshots {snapshots} · configs {configs} · problems {problems} · orphans {orphans}',
         detailDirty: '{n} uncommitted change(s)',
         stateOk: 'ok',
@@ -209,7 +209,7 @@ window.__ModuleLoader__.load({
 
     /** Turn a machine-readable reason into a sentence, so the panel explains itself. */
     function reasonText(t, reason) {
-      // 引擎（dev-backup.status/1）给的原因：码是机器可读的英文标识，句子由脚本给出 ——
+      // 引擎（cold-backup.status/1）给的原因：码是机器可读的英文标识，句子由脚本给出 ——
       // 脚本输出保持中文（它是与 launchd、文档、自测共用的事实源，不在这里另翻一份）。
       if (typeof reason?.code === 'string' && reason.code.startsWith('engine:')) {
         const code = reason.code.slice('engine:'.length)
@@ -247,13 +247,13 @@ window.__ModuleLoader__.load({
       })
     }
 
-    function DevBackupSection({ t }) {
+    function ColdBackupSection({ t }) {
       const [state, setState] = React.useState({ status: 'loading', data: null, error: null })
       const timer = React.useRef(null)
 
       const load = React.useCallback(async () => {
         try {
-          const response = await fetch('/dsh-dev-backup/status', { headers: { accept: 'application/json' } })
+          const response = await fetch('/dsh-cold-backup/status', { headers: { accept: 'application/json' } })
           if (!response.ok) throw new Error(`HTTP ${String(response.status)}`)
           const data = await response.json()
           setState({ status: 'ready', data, error: null })
@@ -416,16 +416,16 @@ window.__ModuleLoader__.load({
     }
 
     // Profile entry id from this package's cordis.patch.yml.
-    const ENTRY_ID = 'dsh-dev-backup'
+    const ENTRY_ID = 'dsh-cold-backup'
 
     const inject = ['slots', 'locale']
 
     function apply(ctx) {
-      const namespace = 'settings.dshDevBackup'
+      const namespace = 'settings.dshColdBackup'
       const t = ctx.locale.bind(namespace)
       ctx.effect(
         () => ctx.locale.register(namespace, dictionaries),
-        'dsh-dev-backup: panel dictionaries',
+        'dsh-cold-backup: panel dictionaries',
       )
       ctx.slots.inject('settings.section', () => ctx.slots.register({
         name: 'settings.section',
@@ -434,7 +434,7 @@ window.__ModuleLoader__.load({
         label: () => t('nav'),
         locale: namespace,
         inject: () => ({}),
-      }, DevBackupSection))
+      }, ColdBackupSection))
     }
 
     exports.inject = inject

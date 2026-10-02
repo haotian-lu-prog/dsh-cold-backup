@@ -1,4 +1,4 @@
-# AGENTS.md — dsh-dev-backup
+# AGENTS.md — dsh-cold-backup
 
 DeepSeek Harness 插件（bundle）：在 Harness Web UI 里加一页「备份」，显示定时备份的新鲜度。
 Host 半侧读状态文件 / `launchctl` / 状态命令，Client 半侧画面板。
@@ -6,7 +6,7 @@ Host 半侧读状态文件 / `launchctl` / 状态命令，Client 半侧画面板
 ## 运行
 
 - 安装依赖：`npm install`
-- 测试：`npm test`（`node --test`，16 项；不需要真实 Harness）
+- 测试：`npm test`（`node --test`，28 项；不需要真实 Harness）
 - 打包：`npm pack`
 - 端到端验证：见 `docs/evidence/e2e-0.2.0-rc.2.md`（隔离 `DSH_HOME` + `web` 模板 profile）
 
@@ -27,13 +27,13 @@ Host 半侧读状态文件 / `launchctl` / 状态命令，Client 半侧画面板
    `>=0.2.0-rc.2 <0.3.0` 之类会**静默排除所有 harness 预发布构建**。
 3. **配置字段要 `volatile()`**，且读取时兼容「引用」与「纯值」两种形态（见 `index.js` 的
    `readField`）。只写 `.get()` 会在非 volatile 字段上直接抛错 —— 本插件第一版就是这么挂的，
-   `/dsh-dev-backup/status` 返回 500 `collection-failed`。
+   `/dsh-cold-backup/status` 返回 500 `collection-failed`。
 
 ## 结构
 
 - `index.js` — Host 半侧：`Config` 声明、纯函数解析（`parseLaunchctlPrint` / `readTimestamp` /
   `readLastFailureLine`）、`evaluateStatus` 健康判定、`collectStatus`（依赖可注入，便于测试）、
-  以及 `/dsh-dev-backup/status` 路由
+  以及 `/dsh-cold-backup/status` 路由
 - `client.js` — Client 半侧：`settings.section` 一页「备份」，中英双语，按 `refreshSeconds` 轮询
 - `cordis.patch.yml` — profile patch 入口行
 - `test/plugin.test.js` — `node --test` 套件

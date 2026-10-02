@@ -4,6 +4,10 @@
 
 以下是当时执行的步骤与自查，留作以后更新条目时的参照。
 
+> **改名说明（2026-10-02）**：插件已改名为 **`dsh-cold-backup`**（配套引擎 CLI 同步改为 `cold-backup`）。
+> 本文是那次提交的记录，其中的包名 / 仓库 URL / 分支名 / 条目文件名已按**当前名称**统一整理；
+> 提交当时的 git 记录与 npm 包用的是旧名。要更新市场条目时，以本文的名称与路径为准。
+
 投稿目标：`awesome-dsh-plugin/awesome-dsh-plugin`。
 **形态：只加一个文件**，不要改 `README.md` / `README.zh.md`（它们由 `generate-readme.mjs` 生成，
 合并后由 sync-readme 在 main 上重跑）。
@@ -15,15 +19,15 @@
 | 仓库存在且非归档 | ✓ |
 | `package.json` 声明 `dsh.bundle` | ✓（`dsh.bundle.patch`） |
 | 仓库创建满 24 小时 | ✓ 已满（建于 `2026-09-30T08:59:35Z`） |
-| npm 上有对应包 | ✓ `dsh-dev-backup@1.0.0`（registry 的 `repository.url` 已确认指向本仓库） |
+| npm 上有对应包 | ✓ 提交时 `1.0.0` 已发布到 npm（registry 的 `repository.url` 已确认指向本仓库） |
 
 ## 要加的文件
 
-`data/plugins/haotian-lu-prog__dsh-dev-backup.yml`
+`data/plugins/haotian-lu-prog__dsh-cold-backup.yml`
 
 ```yaml
-url: https://github.com/haotian-lu-prog/dsh-dev-backup
-name: haotian-lu-prog/dsh-dev-backup
+url: https://github.com/haotian-lu-prog/dsh-cold-backup
+name: haotian-lu-prog/dsh-cold-backup
 category: dev
 description:
   en: '...'
@@ -61,29 +65,29 @@ git clone --depth 1 https://github.com/awesome-dsh-plugin/awesome-dsh-plugin.git
 cd awesome && npm ci --ignore-scripts
 
 git remote add fork https://github.com/haotian-lu-prog/awesome-dsh-plugin.git
-git fetch fork add-dsh-dev-backup
-git checkout -b add-dsh-dev-backup fork/add-dsh-dev-backup   # 已推好的分支
+git fetch fork add-dsh-cold-backup
+git checkout -b add-dsh-cold-backup fork/add-dsh-cold-backup   # 已推好的分支
 
 # 开 PR 前先跟上上游，避免 fork 落后导致 CI 重跑失败
 git fetch --depth 1 origin main
 git rebase origin/main
-git push --force-with-lease fork add-dsh-dev-backup
+git push --force-with-lease fork add-dsh-cold-backup
 ```
 
 PR 标题 / 正文：
 
 ```text
-Add dsh-dev-backup
+Add dsh-cold-backup
 
 Backup freshness monitor for the Harness Web UI: reads a last-success timestamp file,
 a failure log, a launchd job's state and last exit code, and an optional status command,
 then shows in Settings whether the scheduled backup actually ran — and names the specific
 reason whenever it did not.
 
-- repo: https://github.com/haotian-lu-prog/dsh-dev-backup
+- repo: https://github.com/haotian-lu-prog/dsh-cold-backup
 - category: dev
 - verified end-to-end on DSH 0.2.0-rc.2 (evidence in the repo's docs/evidence/)
-- only adds data/plugins/haotian-lu-prog__dsh-dev-backup.yml
+- only adds data/plugins/haotian-lu-prog__dsh-cold-backup.yml
 ```
 
 ## 已做过的干跑（2026-09-30）
@@ -95,7 +99,7 @@ reason whenever it did not.
 - `node --test scripts/added-dates.test.mjs scripts/capabilities.test.mjs scripts/adopt-discussions.test.mjs` → **18/18 通过**
 - `GITHUB_TOKEN=<token> node scripts/check-submission.mjs --base <sha>` → **唯一失败项是年龄**
   （"repository is 0.0 days old (needs 1)"），其余（`dsh.bundle` 清单 / 非归档 / 非 DSH 本身）全过
-- 分支已推到 fork：`add-dsh-dev-backup` @ `2c26806`，diff **+1 文件 / +6 行**
+- 分支已推到 fork：`add-dsh-cold-backup` @ `2c26806`，diff **+1 文件 / +6 行**
 
 ## 对照 contributing.md 的自查
 

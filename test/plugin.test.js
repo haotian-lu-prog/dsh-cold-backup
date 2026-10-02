@@ -1,4 +1,4 @@
-// Tests for dsh-dev-backup. `node --test`, no live Harness required: the Host half is written
+// Tests for dsh-cold-backup. `node --test`, no live Harness required: the Host half is written
 // as pure functions plus one injectable collector, so every rule is covered here.
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
@@ -20,12 +20,12 @@ import {
   readTimestamp,
 } from '../index.js'
 
-/** A document shaped exactly like `backup-dev.sh --status --json` (contract dev-backup.status/1). */
+/** A document shaped exactly like `cold-backup --status --json` (contract cold-backup.status/1). */
 const STATUS_DOCUMENT = {
-  schema: 'dev-backup.status/1',
+  schema: 'cold-backup.status/1',
   generatedAt: 1_790_932_000,
   root: '/Users/x/dev',
-  dest: '/Users/x/OneDrive/dev-backup',
+  dest: '/Users/x/OneDrive/cold-backup',
   verdict: 'bad',
   lastOk: 1_790_931_285,
   lastFailure: { epoch: 1_790_931_285, trigger: 'daily', message: '有目标被跳过' },
@@ -283,7 +283,7 @@ test('collectStatus treats any non-default source as explicitly configured', asy
 
 test('parseStatusJson accepts our document and normalises every field', () => {
   const parsed = parseStatusJson(STATUS_JSON)
-  assert.equal(parsed.schema, 'dev-backup.status/1')
+  assert.equal(parsed.schema, 'cold-backup.status/1')
   assert.equal(parsed.verdict, 'bad')
   assert.equal(parsed.counts.problems, 1)
   assert.deepEqual(parsed.orphans, ['repos/gone'])
@@ -303,8 +303,8 @@ test('parseStatusJson refuses anything that is not ours', () => {
   assert.equal(parseStatusJson('not json'), null)
   assert.equal(parseStatusJson('[]'), null)
   assert.equal(parseStatusJson('null'), null)
-  assert.equal(parseStatusJson('{"schema":"dev-backup.status/1"}'), null, 'verdict 必须有')
-  assert.equal(parseStatusJson('{"schema":"dev-backup.status/1","verdict":"maybe"}'), null)
+  assert.equal(parseStatusJson('{"schema":"cold-backup.status/1"}'), null, 'verdict 必须有')
+  assert.equal(parseStatusJson('{"schema":"cold-backup.status/1","verdict":"maybe"}'), null)
   assert.equal(parseStatusJson('{"schema":"other.thing/1","verdict":"ok"}'), null, 'schema 必须匹配')
   assert.equal(parseStatusJson(undefined), null)
 })
@@ -337,7 +337,7 @@ test('evaluateStatus: a configured but unusable JSON source is bad, not unknown'
 
 test('collectStatus runs the JSON command, keeps stdout on exit 1, and exposes the document', async () => {
   const payload = await collectStatus(
-    { statusJsonCommand: 'backup-dev.sh --status --json' },
+    { statusJsonCommand: 'cold-backup --status --json' },
     {
       ...IDLE_READERS,
       // 脚本在「有问题」时正是这样：合法 JSON + 退出码 1。丢掉 stdout 就把问题变成了读不到状态。
@@ -351,7 +351,7 @@ test('collectStatus runs the JSON command, keeps stdout on exit 1, and exposes t
   assert.equal(payload.engine.output, null)
   assert.equal(payload.engine.document.targets.length, 2)
   assert.equal(payload.explicitlyConfigured, true)
-  assert.equal(payload.config.statusJsonCommand, 'backup-dev.sh --status --json')
+  assert.equal(payload.config.statusJsonCommand, 'cold-backup --status --json')
 })
 
 test('collectStatus reports a broken JSON source instead of silently using another one', async () => {
@@ -413,9 +413,9 @@ test('the manifest points the bundle patch and client at real files', async () =
   assert.ok(manifest.files.includes('cordis.patch.yml'))
 })
 
-test('the defaults describe the dev-backup convention', () => {
-  assert.equal(DEFAULT_FRESHNESS_FILE, '~/Library/Logs/dev-backup/last-ok')
-  assert.equal(DEFAULT_FAILURE_FILE, '~/Library/Logs/dev-backup/last-failure')
+test('the defaults describe the cold-backup convention', () => {
+  assert.equal(DEFAULT_FRESHNESS_FILE, '~/Library/Logs/cold-backup/last-ok')
+  assert.equal(DEFAULT_FAILURE_FILE, '~/Library/Logs/cold-backup/last-failure')
 })
 
 // The Client half is plain browser JavaScript. Stub the loader and assert the contract the
@@ -436,7 +436,7 @@ test('the client half loads through __ModuleLoader__ and registers one settings 
   // The file is a script, not a module: evaluate it with the stubbed globals in scope.
   new Function('window', 'document', source)(window, undefined)
 
-  assert.equal(loaded.id, 'dsh-dev-backup')
+  assert.equal(loaded.id, 'dsh-cold-backup')
   const exports = loaded.factory(require)
   assert.deepEqual(exports.inject, ['slots', 'locale'])
 
@@ -456,12 +456,12 @@ test('the client half loads through __ModuleLoader__ and registers one settings 
   exports.apply(ctx)
 
   assert.equal(registered.length, 1)
-  assert.equal(registered[0].options.id, 'dsh-dev-backup')
+  assert.equal(registered[0].options.id, 'dsh-cold-backup')
   assert.equal(registered[0].options.name, 'settings.section')
   assert.equal(typeof registered[0].component, 'function')
 
   const [namespace, dictionaries] = namespaces[0]
-  assert.equal(namespace, 'settings.dshDevBackup')
+  assert.equal(namespace, 'settings.dshColdBackup')
   assert.deepEqual(
     Object.keys(dictionaries.zh).sort(),
     Object.keys(dictionaries.en).sort(),
@@ -524,7 +524,7 @@ async function renderClientPanel (data) {
   return collect(nodes.map(node => node.props.children))
 }
 
-test('the client half renders the engine detail block from a dev-backup.status/1 document', async () => {
+test('the client half renders the engine detail block from a cold-backup.status/1 document', async () => {
   const payload = {
     level: 'bad',
     reasons: [{ code: 'engine:behind', target: 'demo', message: '备份落后（HEAD abc）' }],

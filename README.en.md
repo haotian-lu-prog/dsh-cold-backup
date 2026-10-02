@@ -1,10 +1,10 @@
-English | [简体中文](https://github.com/haotian-lu-prog/dsh-dev-backup/blob/main/README.md)
+English | [简体中文](https://github.com/haotian-lu-prog/dsh-cold-backup/blob/main/README.md)
 
-# dsh-dev-backup
+# dsh-cold-backup
 
-[![npm version](https://img.shields.io/npm/v/dsh-dev-backup)](https://www.npmjs.com/package/dsh-dev-backup)
-[![license](https://img.shields.io/npm/l/dsh-dev-backup)](LICENSE)
-[![Node](https://img.shields.io/node/v/dsh-dev-backup)](package.json)
+[![npm version](https://img.shields.io/npm/v/dsh-cold-backup)](https://www.npmjs.com/package/dsh-cold-backup)
+[![license](https://img.shields.io/npm/l/dsh-cold-backup)](LICENSE)
+[![Node](https://img.shields.io/node/v/dsh-cold-backup)](package.json)
 
 A third-party DeepSeek Harness plugin that adds a **Backup** page to the Harness Web UI and answers
 one question: *did my scheduled backup actually run, and when did it last succeed?*
@@ -17,7 +17,7 @@ It reads whatever a backup job leaves behind, so any scheme that can provide one
 | Failure log | The most recent **problem** | Last line (the convention appends, so the last line is newest) |
 | launchd job | Whether the timer is loaded, and its last exit code | `launchctl print gui/<uid>/<label>` |
 | Status command (optional) | Any self-check | Exit code 0 is healthy; its output is shown in the panel |
-| JSON status command (optional) | A structured status document | Runs a command (e.g. `dev-backup --status --json`) and reads its `dev-backup.status/1` JSON; **when it parses, it wins**, and its per-target detail is shown |
+| JSON status command (optional) | A structured status document | Runs a command (e.g. `cold-backup --status --json`) and reads its `cold-backup.status/1` JSON; **when it parses, it wins**, and its per-target detail is shown |
 
 One rule is worth remembering: **a failure is reported unless a later success supersedes it**.
 The comparison is `>=`, not `>` — a single run can write the success timestamp and record a failure
@@ -49,7 +49,7 @@ Harness checkout, and its `dsh.bundle` patch wires both the Host and Client plug
 
 ```sh
 dsh --profile web-backup --from-default-profile web --dump-config
-dsh plugin --profile web-backup add dsh-dev-backup
+dsh plugin --profile web-backup add dsh-cold-backup
 dsh --profile web-backup
 ```
 
@@ -57,27 +57,27 @@ A locally built tarball works too:
 
 ```sh
 npm pack
-dsh plugin --profile web-backup add ./dsh-dev-backup-<version>.tgz
+dsh plugin --profile web-backup add ./dsh-cold-backup-<version>.tgz
 ```
 
 ## Configuration
 
-Everything lives under **Settings → Plugins → dsh-dev-backup**. All fields are `volatile()`, so edits
+Everything lives under **Settings → Plugins → dsh-cold-backup**. All fields are `volatile()`, so edits
 apply immediately without a restart:
 
 | Field | Default | Meaning |
 |---|---|---|
-| `freshnessFile` | `~/Library/Logs/dev-backup/last-ok` | File holding the last success timestamp |
-| `failureFile` | `~/Library/Logs/dev-backup/last-failure` | Failure log (empty disables it) |
+| `freshnessFile` | `~/Library/Logs/cold-backup/last-ok` | File holding the last success timestamp |
+| `failureFile` | `~/Library/Logs/cold-backup/last-failure` | Failure log (empty disables it) |
 | `launchdLabel` | empty | LaunchAgent label to inspect (empty disables it) |
 | `statusCommand` | empty | Optional self-check; exit code 0 is healthy |
-| `statusJsonCommand` | empty | Optional: a command printing a `dev-backup.status/1` document (e.g. `dev-backup --status --json`). When it parses, its verdict drives the panel and its per-target detail is rendered |
+| `statusJsonCommand` | empty | Optional: a command printing a `cold-backup.status/1` document (e.g. `cold-backup --status --json`). When it parses, its verdict drives the panel and its per-target detail is rendered |
 | `staleAfterHours` | `36` | Older than this many hours is reported as stale |
 | `refreshSeconds` | `30` | Panel polling interval |
 
-The defaults describe the **dev-backup convention** (`last-ok` holds epoch seconds, `last-failure` is
+The defaults describe the **cold-backup convention** (`last-ok` holds epoch seconds, `last-failure` is
 appended to) — and they are exactly where the companion engine
-[`dev-backup`](https://www.npmjs.com/package/dev-backup) puts them on macOS, so "dev-backup + this
+[`cold-backup`](https://www.npmjs.com/package/cold-backup) puts them on macOS, so "cold-backup + this
 plugin" needs **no configuration at all**. Point the paths somewhere else to use any other backup
 scheme — the convention itself is not required.
 
@@ -92,7 +92,7 @@ Host half (index.js)                       Client half (client.js)
   ├─ reads status files / launchctl / cmd    ├─ registers a "Backup" page on settings.section
   ├─ evaluateStatus() → ok/warn/bad/         ├─ polls the Host route every refreshSeconds
   │  unknown plus machine-readable reasons   └─ bilingual, lists every reason
-  └─ serves it as JSON at /dsh-dev-backup/status
+  └─ serves it as JSON at /dsh-cold-backup/status
 ```
 
 Parsing and health rules are pure functions covered by 28 `node --test` cases, runnable without a
@@ -102,14 +102,14 @@ live Harness:
 npm test
 ```
 
-## The JSON contract (`dev-backup.status/1`)
+## The JSON contract (`cold-backup.status/1`)
 
 What `statusJsonCommand` reads is a **shared verdict**: the companion macOS panel (`Backup.app`) consumes
 the very same document, so the two UIs cannot contradict each other.
 
 | Field | Meaning |
 |---|---|
-| `schema` | The `dev-backup.status/` prefix; a document without it is never treated as ours |
+| `schema` | The `cold-backup.status/` prefix; a document without it is never treated as ours |
 | `verdict` | `ok` \| `bad` (mirrors that command's exit code) |
 | `reasons[]` | `{code, target, message}`; `code` is a machine-readable identifier, `message` comes from the script (kept in Chinese — the script is the single source of truth shared with launchd, the docs and the self-test) |
 | `targets[]` | One row per repo/snapshot/config: `state` (`ok`/`behind`/`missing`/`skipped`), `upload`, `at`, `bytes`, `sha256`, `dirty`, `message` |
@@ -120,24 +120,24 @@ implementations of one rule drifted apart once — the panel compared `>` where 
 Without it, or when the output is not a valid document, the generic sources above are used; a configured
 but unusable source is reported as a problem rather than silently ignored.
 
-## Relationship to the backup scheme (`dev-backup`)
+## Relationship to the backup scheme (`cold-backup`)
 
 This plugin is the **UI front-end for a backup scheme, not the backup itself**. The scheme is: a
 scheduled job writes its last success time to a file, appends failures to a log, and optionally runs
 as a launchd job. The plugin only reads those artifacts — it never writes, triggers or deletes
 anything, which is why it is safe to leave running.
 
-**The companion backup engine is [`dev-backup`](https://github.com/haotian-lu-prog/dev-backup)**
-(`npm i -g dev-backup` — a dependency-free bash CLI for macOS and Linux):
+**The companion backup engine is [`cold-backup`](https://github.com/haotian-lu-prog/cold-backup)**
+(`npm i -g cold-backup` — a dependency-free bash CLI for macOS and Linux):
 
 ```sh
-npm i -g dev-backup      # engine: bundles + snapshots + config whitelist → your synced folder
-dev-backup --init        # write a config; set ROOT and DEST
-dev-backup schedule install
+npm i -g cold-backup      # engine: bundles + snapshots + config whitelist → your synced folder
+cold-backup --init        # write a config; set ROOT and DEST
+cold-backup schedule install
 ```
 
 It is **not required**: any scheme that writes `last-ok` / `last-failure`, or that can print a
-`dev-backup.status/1` document, works with this panel. The reverse is also true — `dev-backup`
+`cold-backup.status/1` document, works with this panel. The reverse is also true — `cold-backup`
 does not need this plugin; the plugin just brings the same verdict into the Harness UI.
 
 ## License
