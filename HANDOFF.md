@@ -4,9 +4,10 @@
 
 ## 当前写者
 
-- 工具：DSH（2026-10-02 晚）—— **改名进行中**
+- 工具：（空 —— 2026-10-02 DSH 会话已收工：**改名 `dsh-dev-backup` → `dsh-cold-backup` 已完成并发布**；
+  市场 PR #6410 的 CI 三项全绿，等维护者评审）
 - 分支：main
-- 开始时间：2026-10-02 22:15 (+09:00)
+- 开始时间：—
 - 本轮：**改名** —— 插件 `dsh-dev-backup` → **`dsh-cold-backup`**，与引擎 CLI
   `dev-backup` → **`cold-backup`** 同步：包名、Cordis 入口 id、路由 `/dsh-cold-backup/status`、
   默认路径 `~/Library/Logs/cold-backup/*`、JSON 契约前缀 `cold-backup.status/` 全部换成新名，
