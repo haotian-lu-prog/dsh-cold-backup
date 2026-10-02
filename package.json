@@ -1,6 +1,6 @@
 {
   "name": "dsh-dev-backup",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Backup freshness monitor for DeepSeek Harness: shows whether your scheduled backup actually ran, right inside the Harness Web UI (DSH 0.2.0-rc.2)",
   "type": "module",
   "main": "index.js",

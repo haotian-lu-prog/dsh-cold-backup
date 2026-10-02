@@ -15,9 +15,41 @@ import {
   expandHome,
   name,
   parseLaunchctlPrint,
+  parseStatusJson,
   readLastFailureLine,
   readTimestamp,
 } from '../index.js'
+
+/** A document shaped exactly like `backup-dev.sh --status --json` (contract dev-backup.status/1). */
+const STATUS_DOCUMENT = {
+  schema: 'dev-backup.status/1',
+  generatedAt: 1_790_932_000,
+  root: '/Users/x/dev',
+  dest: '/Users/x/OneDrive/dev-backup',
+  verdict: 'bad',
+  lastOk: 1_790_931_285,
+  lastFailure: { epoch: 1_790_931_285, trigger: 'daily', message: '有目标被跳过' },
+  orphans: ['repos/gone'],
+  reasons: [{ code: 'behind', target: 'demo', message: '备份落后（HEAD abc，最新 bundle demo-1.bundle）' }],
+  targets: [
+    {
+      kind: 'repo', label: 'demo', state: 'behind', artifact: 'demo-1.bundle', at: 1_790_930_000,
+      bytes: 1234, sha256: 'a'.repeat(64), upload: 'uploaded', dirty: 3, message: '备份落后',
+    },
+    {
+      kind: 'snapshot', label: 'scratch', state: 'ok', artifact: 'scratch-1.tar.gz', at: 1_790_930_000,
+      bytes: 42, sha256: null, upload: 'unknown-cloud', dirty: null, message: 'scratch-1.tar.gz（0 天前）',
+    },
+  ],
+  counts: { repos: 1, snapshots: 1, configs: 0, problems: 1, orphans: 1 },
+}
+const STATUS_JSON = JSON.stringify(STATUS_DOCUMENT)
+const IDLE_READERS = {
+  readFreshnessFile: async () => null,
+  readFailureFile: async () => null,
+  readLaunchd: async () => null,
+  runStatusCommand: async () => null,
+}
 
 const root = fileURLToPath(new URL('..', import.meta.url))
 const HOUR = 3_600_000
@@ -248,6 +280,112 @@ test('collectStatus treats any non-default source as explicitly configured', asy
 
 // The Harness indexes the client module table by PACKAGE NAME, so these four must agree or the
 // Client half silently never loads. This is exactly how a sibling plugin broke on 0.2.x.
+
+test('parseStatusJson accepts our document and normalises every field', () => {
+  const parsed = parseStatusJson(STATUS_JSON)
+  assert.equal(parsed.schema, 'dev-backup.status/1')
+  assert.equal(parsed.verdict, 'bad')
+  assert.equal(parsed.counts.problems, 1)
+  assert.deepEqual(parsed.orphans, ['repos/gone'])
+  assert.equal(parsed.targets.length, 2)
+  assert.equal(parsed.targets[0].sha256.length, 64)
+  assert.equal(parsed.targets[1].sha256, null)
+  assert.equal(parsed.targets[1].dirty, null)
+  // 原因带上来源前缀：引擎的词汇表与插件自己的那套必须分得开。
+  assert.equal(parsed.reasons[0].code, 'engine:behind')
+  assert.equal(parsed.reasons[0].target, 'demo')
+  assert.equal(parsed.lastFailure.trigger, 'daily')
+})
+
+test('parseStatusJson refuses anything that is not ours', () => {
+  assert.equal(parseStatusJson(''), null)
+  assert.equal(parseStatusJson('   '), null)
+  assert.equal(parseStatusJson('not json'), null)
+  assert.equal(parseStatusJson('[]'), null)
+  assert.equal(parseStatusJson('null'), null)
+  assert.equal(parseStatusJson('{"schema":"dev-backup.status/1"}'), null, 'verdict 必须有')
+  assert.equal(parseStatusJson('{"schema":"dev-backup.status/1","verdict":"maybe"}'), null)
+  assert.equal(parseStatusJson('{"schema":"other.thing/1","verdict":"ok"}'), null, 'schema 必须匹配')
+  assert.equal(parseStatusJson(undefined), null)
+})
+
+test('evaluateStatus: a parsed document is authoritative for level and reasons', () => {
+  const parsed = parseStatusJson(STATUS_JSON)
+  // 通用来源全都没有 → 若没有文档，这里会判 unknown；有文档则按它走。
+  const result = evaluateStatus({ document: parsed }, { now: 1_790_932_000 })
+  assert.equal(result.level, 'bad')
+  assert.equal(result.source, 'engine')
+  assert.deepEqual(result.reasons.map(r => r.code), ['engine:behind'])
+
+  const okDocument = parseStatusJson(JSON.stringify({ ...STATUS_DOCUMENT, verdict: 'ok', reasons: [] }))
+  assert.equal(evaluateStatus({ document: okDocument }, {}).level, 'ok')
+  // 引擎说好、但通用来源说坏：仍以引擎为准（它才是跑了全部规则的那个）。
+  assert.equal(evaluateStatus({
+    document: okDocument,
+    freshness: { path: '/x', missing: true, at: null },
+  }, {}).level, 'ok')
+})
+
+test('evaluateStatus: a configured but unusable JSON source is bad, not unknown', () => {
+  const result = evaluateStatus({ engineFailed: true }, {})
+  assert.equal(result.level, 'bad')
+  assert.equal(result.reasons[0].code, 'status-json-failed')
+  assert.equal(result.source, 'engine')
+  // 没有配任何东西才是 unknown —— 两者不能混。
+  assert.equal(evaluateStatus({}, {}).level, 'unknown')
+})
+
+test('collectStatus runs the JSON command, keeps stdout on exit 1, and exposes the document', async () => {
+  const payload = await collectStatus(
+    { statusJsonCommand: 'backup-dev.sh --status --json' },
+    {
+      ...IDLE_READERS,
+      // 脚本在「有问题」时正是这样：合法 JSON + 退出码 1。丢掉 stdout 就把问题变成了读不到状态。
+      runJsonStatusCommand: async () => ({ exitCode: 1, output: STATUS_JSON }),
+      home: '/Users/x',
+    },
+  )
+  assert.equal(payload.level, 'bad')
+  assert.equal(payload.engine.configured, true)
+  assert.equal(payload.engine.exitCode, 1)
+  assert.equal(payload.engine.output, null)
+  assert.equal(payload.engine.document.targets.length, 2)
+  assert.equal(payload.explicitlyConfigured, true)
+  assert.equal(payload.config.statusJsonCommand, 'backup-dev.sh --status --json')
+})
+
+test('collectStatus reports a broken JSON source instead of silently using another one', async () => {
+  const payload = await collectStatus(
+    { statusJsonCommand: 'nonsense', statusCommand: 'true' },
+    {
+      ...IDLE_READERS,
+      runJsonStatusCommand: async () => ({ exitCode: 127, output: 'command not found' }),
+      runStatusCommand: async () => ({ exitCode: 0, output: 'ok' }),
+      home: '/Users/x',
+    },
+  )
+  assert.equal(payload.level, 'bad')
+  assert.equal(payload.engine.document, null)
+  assert.equal(payload.engine.exitCode, 127)
+  assert.equal(payload.engine.output, 'command not found')
+  assert.deepEqual(payload.reasons.map(r => r.code), ['status-json-failed'])
+})
+
+test('collectStatus leaves the generic path untouched when no JSON source is set', async () => {
+  const payload = await collectStatus(
+    { freshnessFile: '~/last-ok' },
+    {
+      ...IDLE_READERS,
+      readFreshnessFile: async () => ({ path: '/Users/x/last-ok', missing: false, at: 1_790_931_285_000 }),
+      home: '/Users/x',
+      now: 1_790_931_285_000 + 60_000,
+    },
+  )
+  assert.equal(payload.engine, null)
+  assert.equal(payload.level, 'ok')
+  assert.deepEqual(payload.reasons, [])
+})
+
 test('the package name, patch id, ENTRY_ID and client module id all agree', async () => {
   const manifest = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'))
   const patch = await readFile(new URL('../cordis.patch.yml', import.meta.url), 'utf8')

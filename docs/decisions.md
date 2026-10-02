@@ -4,6 +4,25 @@
 
 ---
 
+## 2026-10-02 — 新增 `dev-backup.status/1` 结构化源：判定权交给脚本
+
+- **背景**：面板（macOS app）与本插件看的是同一批产物，但**判定规则各写了一份**：插件用 `>=`、
+  面板用 `>`，于是「同一次运行既写 `last-ok` 又留 `last-failure`」在面板上被判成正常。
+  复刻 runner 不成立（见下一条），但「两个界面各说各话」是真问题。
+- **选项**：A 让插件把面板的那套规则也实现一遍（第三份）；B 让脚本输出结构化文档，两边都只消费它；
+  C 只做插件、面板不动。
+- **结论**：**B**。给 `backup-dev.sh --status` 加 `--json`（契约 `dev-backup.status/1`），
+  脚本里 `status_collect` **只判定一次**，人读文本与 JSON 是它的两个出口；本插件新增可选字段
+  `statusJsonCommand` 消费它，macOS 面板同样消费它。
+  - 判定权：文档解析成功时**以它为准**（`verdict` 驱动 level，`reasons` 原样透出并加 `engine:` 前缀
+    与插件自己的词汇表分开），插件的通用来源退化成展示行。
+  - 边界：「配了但用不了」与「没配」必须分得开 —— 前者判 `bad` 并给 `status-json-failed`，
+    后者才走 `unknown`；非零退出**不丢 stdout**（`--status --json` 正是「合法文档 + 退出码 1」）。
+  - 安全：只读性质不变（还是不起备份、不写云盘）；`schema` 前缀不匹配的文档一律不当成自己的。
+- **代价 / 后续**：面板的 `--status` 动作改成 `--status --json`，并新增无界面入口
+  `--render-status-json`（GUI 点不动，但渲染逻辑要可测）。本机**没有 Swift 工具链**，
+  面板侧只落到源码、编译不了 —— 见 `_shared/HANDOFF.md` 未决问题。
+
 ## 2026-10-02 — 不复刻 `dev-backup-runner`：本插件保持「只读监视器」
 
 - **背景**：用户要求评估「把 `~/Applications/dev-backup-runner.app`（自建冷备面板）的功能复刻进本插件」。

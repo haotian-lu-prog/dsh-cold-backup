@@ -17,6 +17,7 @@ It reads whatever a backup job leaves behind, so any scheme that can provide one
 | Failure log | The most recent **problem** | Last line (the convention appends, so the last line is newest) |
 | launchd job | Whether the timer is loaded, and its last exit code | `launchctl print gui/<uid>/<label>` |
 | Status command (optional) | Any self-check | Exit code 0 is healthy; its output is shown in the panel |
+| JSON status command (optional) | A structured status document | Runs a command (e.g. `backup-dev.sh --status --json`) and reads its `dev-backup.status/1` JSON; **when it parses, it wins**, and its per-target detail is shown |
 
 One rule is worth remembering: **a failure is reported unless a later success supersedes it**.
 The comparison is `>=`, not `>` — a single run can write the success timestamp and record a failure
@@ -56,7 +57,7 @@ A locally built tarball works too:
 
 ```sh
 npm pack
-dsh plugin --profile web-backup add ./dsh-dev-backup-1.0.0.tgz
+dsh plugin --profile web-backup add ./dsh-dev-backup-1.1.0.tgz
 ```
 
 ## Configuration
@@ -70,6 +71,7 @@ apply immediately without a restart:
 | `failureFile` | `~/Library/Logs/dev-backup/last-failure` | Failure log (empty disables it) |
 | `launchdLabel` | empty | LaunchAgent label to inspect (empty disables it) |
 | `statusCommand` | empty | Optional self-check; exit code 0 is healthy |
+| `statusJsonCommand` | empty | Optional: a command printing a `dev-backup.status/1` document (e.g. `~/dev/_shared/bin/backup-dev.sh --status --json`). When it parses, its verdict drives the panel and its per-target detail is rendered |
 | `staleAfterHours` | `36` | Older than this many hours is reported as stale |
 | `refreshSeconds` | `30` | Panel polling interval |
 
@@ -91,12 +93,30 @@ Host half (index.js)                       Client half (client.js)
   └─ serves it as JSON at /dsh-dev-backup/status
 ```
 
-Parsing and health rules are pure functions covered by 16 `node --test` cases, runnable without a
+Parsing and health rules are pure functions covered by 26 `node --test` cases, runnable without a
 live Harness:
 
 ```sh
 npm test
 ```
+
+## The JSON contract (`dev-backup.status/1`)
+
+What `statusJsonCommand` reads is a **shared verdict**: the macOS panel (`~/dev/_shared/app`) consumes the
+very same document, so the two UIs cannot contradict each other.
+
+| Field | Meaning |
+|---|---|
+| `schema` | The `dev-backup.status/` prefix; a document without it is never treated as ours |
+| `verdict` | `ok` \| `bad` (mirrors that command's exit code) |
+| `reasons[]` | `{code, target, message}`; `code` is a machine-readable identifier, `message` comes from the script (kept in Chinese — the script is the single source of truth shared with launchd, the docs and the self-test) |
+| `targets[]` | One row per repo/snapshot/config: `state` (`ok`/`behind`/`missing`/`skipped`), `upload`, `at`, `bytes`, `sha256`, `dirty`, `message` |
+| `counts` / `orphans` / `lastOk` / `lastFailure` | Counts, orphan directories, and the success/failure signals |
+
+With it configured, **the script owns the verdict**: this plugin stops re-deriving the rules (two
+implementations of one rule drifted apart once — the panel compared `>` where the plugin uses `>=`).
+Without it, or when the output is not a valid document, the generic sources above are used; a configured
+but unusable source is reported as a problem rather than silently ignored.
 
 ## Relationship to the dev-backup convention
 

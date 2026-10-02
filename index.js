@@ -3,6 +3,15 @@
 // Answers one question, from inside the Harness: *did my scheduled backup actually run,
 // and when?* The answer is served as JSON on a private route that the Client half polls.
 //
+// Two kinds of answer:
+//   1. Generic sources — a last-success timestamp file, a failure log, a launchd job, a status
+//      command. Works with any backup scheme, and stays read-only.
+//   2. `statusJsonCommand` — a command that prints a `dev-backup.status/1` document
+//      (`backup-dev.sh --status --json` does). When it parses, **its verdict is authoritative**
+//      and the panel renders its per-target detail. This is the very same document the macOS
+//      panel consumes, so the two UIs cannot drift apart — they did before, once: the panel
+//      compared `>` where we compare `>=`, and silently hid the case we report.
+//
 // Everything here is deliberately dependency-free (node builtins only) and split into pure
 // functions so `node --test` can cover the parsing and the health rules without a live Harness.
 import { execFile } from 'node:child_process'
@@ -43,6 +52,10 @@ export const Config = z.object({
     .description('macOS LaunchAgent label to inspect for its state and last exit code. Empty to disable.'),
   statusCommand: z.string().default('').volatile()
     .description('Optional command; exit code 0 means healthy. Its output is shown in the panel.'),
+  statusJsonCommand: z.string().default('').volatile()
+    .description('Optional command printing a dev-backup.status/1 JSON document, e.g. '
+      + '"~/dev/_shared/bin/backup-dev.sh --status --json". When it parses, its verdict drives the '
+      + 'panel and its per-target detail is shown. Empty to disable.'),
   staleAfterHours: z.natural().default(36).volatile()
     .description('A last success older than this many hours is reported as stale.'),
   refreshSeconds: z.natural().min(5).max(3600).default(30).volatile()
@@ -104,6 +117,99 @@ export function readLastFailureLine(raw) {
   }
 }
 
+/** Schema prefix of the JSON contract shared with the macOS panel (and any other consumer). */
+export const STATUS_JSON_SCHEMA_PREFIX = 'dev-backup.status/'
+
+function stringOr(value, fallback) {
+  return typeof value === 'string' && value.length > 0 ? value : fallback
+}
+
+function numberOr(value, fallback) {
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback
+}
+
+/**
+ * Parse the `dev-backup.status/1` contract. Returns null for anything we do not recognise:
+ * a foreign, newer or malformed document must never be rendered as if it were ours (the panel
+ * falls back to the generic sources instead, and says so).
+ *
+ * Everything is validated field by field. The point of consuming the document is that the script
+ * already applied the rules — re-deriving them here is exactly how the two implementations of
+ * one rule drifted apart before.
+ */
+export function parseStatusJson(raw) {
+  if (typeof raw !== 'string' || raw.trim().length === 0) return null
+  let document
+  try {
+    document = JSON.parse(raw)
+  } catch {
+    return null
+  }
+  if (document === null || typeof document !== 'object' || Array.isArray(document)) return null
+  const schema = stringOr(document.schema, '')
+  if (!schema.startsWith(STATUS_JSON_SCHEMA_PREFIX)) return null
+  // Only the two verdicts the contract defines; anything else means a document we do not know.
+  if (document.verdict !== 'ok' && document.verdict !== 'bad') return null
+
+  const targets = Array.isArray(document.targets)
+    ? document.targets
+      .filter(entry => entry !== null && typeof entry === 'object' && !Array.isArray(entry))
+      .map(entry => ({
+        kind: stringOr(entry.kind, 'unknown'),
+        label: stringOr(entry.label, '?'),
+        state: stringOr(entry.state, 'unknown'),
+        artifact: stringOr(entry.artifact, null),
+        at: numberOr(entry.at, null),
+        bytes: numberOr(entry.bytes, null),
+        sha256: stringOr(entry.sha256, null),
+        upload: stringOr(entry.upload, null),
+        dirty: numberOr(entry.dirty, null),
+        message: stringOr(entry.message, ''),
+      }))
+    : []
+
+  const reasons = Array.isArray(document.reasons)
+    ? document.reasons
+      .filter(entry => entry !== null && typeof entry === 'object' && !Array.isArray(entry))
+      .map(entry => ({
+        // `engine:` keeps the script's vocabulary apart from ours — the two sets will grow
+        // independently, and a collision would silently mislabel a reason.
+        code: `engine:${stringOr(entry.code, 'unknown')}`,
+        target: stringOr(entry.target, null),
+        message: stringOr(entry.message, ''),
+      }))
+    : []
+
+  const counts = document.counts !== null && typeof document.counts === 'object'
+    ? {
+        repos: numberOr(document.counts.repos, 0),
+        snapshots: numberOr(document.counts.snapshots, 0),
+        configs: numberOr(document.counts.configs, 0),
+        problems: numberOr(document.counts.problems, 0),
+        orphans: numberOr(document.counts.orphans, 0),
+      }
+    : null
+
+  return {
+    schema,
+    verdict: document.verdict,
+    dest: stringOr(document.dest, null),
+    generatedAt: numberOr(document.generatedAt, null),
+    lastOk: numberOr(document.lastOk, null),
+    lastFailure: document.lastFailure !== null && typeof document.lastFailure === 'object'
+      ? {
+          epoch: numberOr(document.lastFailure.epoch, null),
+          trigger: stringOr(document.lastFailure.trigger, null),
+          message: stringOr(document.lastFailure.message, ''),
+        }
+      : null,
+    orphans: Array.isArray(document.orphans) ? document.orphans.filter(item => typeof item === 'string') : [],
+    targets,
+    reasons,
+    counts,
+  }
+}
+
 /**
  * The health rules, in one place so the panel can explain *why* it is red.
  * Returns `ok` | `warn` | `bad` | `unknown` plus machine-readable reasons.
@@ -116,6 +222,25 @@ export function evaluateStatus(input, options = {}) {
   const freshness = input.freshness ?? null
   const launchd = input.launchd ?? null
   const failure = input.failure ?? null
+
+  // 1. A parsed dev-backup.status/1 document wins outright: the script already applied every rule,
+  //    and the macOS panel shows that same document. Re-deriving the rules here is how the two
+  //    implementations drifted apart before (the panel compared `>` where we compare `>=`).
+  const document = input.document ?? null
+  if (document) {
+    return {
+      level: document.verdict === 'ok' ? 'ok' : 'bad',
+      reasons: document.reasons,
+      ageHours: null,
+      source: 'engine',
+    }
+  }
+
+  // 2. Configured but unusable: say so instead of quietly falling back to a source the user did
+  //    not point us at. "Broken" and "not configured" must never look the same.
+  if (input.engineFailed) {
+    return { level: 'bad', reasons: [{ code: 'status-json-failed' }], ageHours: null, source: 'engine' }
+  }
 
   const configured = Boolean(freshness || launchd || input.command)
   if (!configured) {
@@ -213,6 +338,26 @@ async function runStatusCommand(command) {
   }
 }
 
+/**
+ * Same shape as `runStatusCommand`, but **stdout is kept even when the command exits non-zero**:
+ * `--status --json` prints a perfectly good document *together with* exit code 1 when the backup
+ * has a problem. Dropping stdout on failure would turn every real problem into "could not read
+ * the status", which is the opposite of useful.
+ */
+async function runJsonStatusCommand(command) {
+  if (!command) return null
+  try {
+    const { stdout, stderr } = await execFileAsync('/bin/sh', ['-c', command], { timeout: 60_000, maxBuffer: 4 << 20 })
+    return { exitCode: 0, output: String(stdout || stderr) }
+  } catch (error) {
+    return {
+      exitCode: Number.isFinite(error?.code) ? error.code : 1,
+      output: String(error?.stdout || error?.stderr || ''),
+      error: String(error?.message ?? error),
+    }
+  }
+}
+
 /** Collect one snapshot. `deps` is injectable so tests never touch the real machine. */
 export async function collectStatus(config, deps = {}) {
   const read = {
@@ -220,19 +365,43 @@ export async function collectStatus(config, deps = {}) {
     failure: deps.readFailureFile ?? readFailureFile,
     launchd: deps.readLaunchd ?? readLaunchd,
     command: deps.runStatusCommand ?? runStatusCommand,
+    jsonCommand: deps.runJsonStatusCommand ?? runJsonStatusCommand,
   }
   const home = deps.home ?? homedir()
   const freshnessPath = expandHome(config.freshnessFile, home)
   const failurePath = expandHome(config.failureFile, home)
 
-  const [freshness, failure, launchd, command] = await Promise.all([
+  const [freshness, failure, launchd, command, engineRun] = await Promise.all([
     read.freshness(freshnessPath),
     read.failure(failurePath),
     read.launchd(config.launchdLabel),
     read.command(config.statusCommand),
+    read.jsonCommand(config.statusJsonCommand),
   ])
 
-  const evaluated = evaluateStatus({ freshness, failure, launchd, command }, {
+  // The JSON contract, shared with the macOS panel. `document` is null when the source is off, when
+  // the command printed nothing usable, or when the document is not ours — the two cases are told
+  // apart below, because "not configured" must never look like "broken".
+  const engine = config.statusJsonCommand
+    ? {
+        configured: true,
+        exitCode: engineRun === null ? null : engineRun.exitCode,
+        document: parseStatusJson(engineRun?.output ?? ''),
+        output: null,
+      }
+    : null
+  if (engine !== null && engine.document === null) {
+    engine.output = String(engineRun?.output ?? engineRun?.error ?? '').trim().slice(0, 1000)
+  }
+
+  const evaluated = evaluateStatus({
+    freshness,
+    failure,
+    launchd,
+    command,
+    document: engine?.document ?? null,
+    engineFailed: Boolean(engine && engine.document === null),
+  }, {
     staleAfterHours: config.staleAfterHours,
     now: deps.now,
   })
@@ -243,6 +412,7 @@ export async function collectStatus(config, deps = {}) {
   // Health is deliberately unaffected; this only drives the hint.
   const explicitlyConfigured = Boolean(config.launchdLabel)
     || Boolean(config.statusCommand)
+    || Boolean(config.statusJsonCommand)
     || (config.freshnessFile ?? DEFAULT_FRESHNESS_FILE) !== DEFAULT_FRESHNESS_FILE
     || (config.failureFile ?? DEFAULT_FAILURE_FILE) !== DEFAULT_FAILURE_FILE
 
@@ -256,11 +426,13 @@ export async function collectStatus(config, deps = {}) {
     failure,
     launchd,
     command,
+    engine,
     config: {
       freshnessFile: freshnessPath,
       failureFile: failurePath,
       launchdLabel: config.launchdLabel,
       statusCommand: config.statusCommand,
+      statusJsonCommand: config.statusJsonCommand,
       staleAfterHours: config.staleAfterHours,
       refreshSeconds: config.refreshSeconds,
     },
@@ -280,6 +452,7 @@ function readConfig(config) {
     failureFile: readField(config.failureFile, DEFAULT_FAILURE_FILE),
     launchdLabel: readField(config.launchdLabel, ''),
     statusCommand: readField(config.statusCommand, ''),
+    statusJsonCommand: readField(config.statusJsonCommand, ''),
     staleAfterHours: readField(config.staleAfterHours, 36),
     refreshSeconds: readField(config.refreshSeconds, 30),
   }

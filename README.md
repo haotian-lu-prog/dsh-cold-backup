@@ -17,6 +17,7 @@
 | 失败日志 | 最近一次**出问题**的记录 | 取最后一行（约定会追加，所以最后一行最新） |
 | launchd 任务 | 定时任务是否加载、上次退出码 | `launchctl print gui/<uid>/<label>` |
 | 状态命令（可选） | 任意自检命令 | 退出码 0 视为正常，输出会显示在面板里 |
+| JSON 状态命令（可选） | 结构化状态文档 | 跑一条命令（如 `backup-dev.sh --status --json`），读它的 `dev-backup.status/1` JSON；**解析成功时以它为准**，并显示逐目标明细 |
 
 判定规则只有一条值得记住：**只要失败记录没有被后来的成功「盖过」，就报有问题**。
 用的是 `>=` 而不是 `>`——因为一次运行可能在同一秒里既写下成功时间戳、又留下失败记录，
@@ -54,7 +55,7 @@ dsh --profile web-backup
 
 ```sh
 npm pack
-dsh plugin --profile web-backup add ./dsh-dev-backup-1.0.0.tgz
+dsh plugin --profile web-backup add ./dsh-dev-backup-1.1.0.tgz
 ```
 
 ## 配置
@@ -67,6 +68,7 @@ dsh plugin --profile web-backup add ./dsh-dev-backup-1.0.0.tgz
 | `failureFile` | `~/Library/Logs/dev-backup/last-failure` | 失败记录（留空关闭） |
 | `launchdLabel` | 空 | 要检查的 LaunchAgent label（留空关闭） |
 | `statusCommand` | 空 | 可选自检命令，退出码 0 视为正常 |
+| `statusJsonCommand` | 空 | 可选：打印 `dev-backup.status/1` JSON 的命令（例如 `~/dev/_shared/bin/backup-dev.sh --status --json`）。解析成功时以它的判定为准，并显示逐目标明细 |
 | `staleAfterHours` | `36` | 超过这么多小时没成功就报「需要留意」 |
 | `refreshSeconds` | `30` | 面板轮询间隔 |
 
@@ -86,11 +88,28 @@ Host 半侧 (index.js)                      Client 半侧 (client.js)
   └─ 在 /dsh-dev-backup/status 上出 JSON
 ```
 
-健康判定与解析全是纯函数，`node --test` 覆盖 16 项，不需要真实 Harness 即可跑：
+健康判定与解析全是纯函数，`node --test` 覆盖 26 项，不需要真实 Harness 即可跑：
 
 ```sh
 npm test
 ```
+
+## JSON 契约（`dev-backup.status/1`）
+
+`statusJsonCommand` 读的是一份**跨工具共用**的判定：macOS 面板（`~/dev/_shared/app`）读的是同一份，
+所以两处显示不可能各说各话。
+
+| 字段 | 含义 |
+|---|---|
+| `schema` | `dev-backup.status/` 前缀；不匹配的文档一律不当成自己的 |
+| `verdict` | `ok` \| `bad`（与那条命令的退出码一致） |
+| `reasons[]` | `{code, target, message}`；`code` 是机器可读的英文标识，`message` 由脚本给出（保持中文 —— 脚本是与 launchd、文档、自测共用的事实源） |
+| `targets[]` | 每个仓库/快照/配置一条：`state`（`ok`/`behind`/`missing`/`skipped`）、`upload`、`at`、`bytes`、`sha256`、`dirty`、`message` |
+| `counts` / `orphans` / `lastOk` / `lastFailure` | 汇总计数、云盘残留、成功与失败信号 |
+
+配置了它之后，**判定权在脚本**：本插件不再自己重算规则（历史上两边各写一份，面板用 `>`、插件用 `>=`，
+已经漂移过一次）。没配、或输出不是合法文档时，回落到上面三种通用来源；「配了但用不了」会明确报成问题，
+**不会静默回落**。
 
 ## 与冷备约定（dev-backup）的关系
 

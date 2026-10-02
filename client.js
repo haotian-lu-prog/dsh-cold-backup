@@ -39,6 +39,11 @@ window.__ModuleLoader__.load({
         .dshBackupButton{box-sizing:border-box;height:28px;padding:0 12px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:transparent;color:var(--dsw-alias-label-primary);font-size:13px;cursor:pointer}
         .dshBackupButton:hover{background:var(--dsw-alias-bg-layer-2)}
         .dshBackupButton:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:2px}
+        .dshBackupDetail{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:6px}
+        .dshBackupDetailItem{display:flex;gap:8px;align-items:baseline;font-size:12px;line-height:18px}
+        .dshBackupDetailMark{flex:none;width:12px;text-align:center;color:var(--dsw-alias-label-secondary)}
+        .dshBackupDetailLabel{flex:none;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--dsw-font-family-mono,ui-monospace,SFMono-Regular,Menlo,monospace)}
+        .dshBackupDetailText{min-width:0;flex:1;color:var(--dsw-alias-label-secondary);word-break:break-word}
       `
       document.head.appendChild(tag)
     }
@@ -76,6 +81,19 @@ window.__ModuleLoader__.load({
         reasonFailureNewer: '最近一次失败没有被后来的成功盖过（该次运行有问题）',
         reasonCommandFailed: '状态命令退出码为 {code}',
         reasonUnconfigured: '未配置任何备份源',
+        reasonStatusJsonFailed: '配置的 JSON 状态命令没有给出可解析的结果（回落不到别的来源）',
+        detail: '冷备明细',
+        detailIntro: '来自 backup-dev.sh --status --json（与 macOS 面板同一份判定）。',
+        detailCounts: '仓库 {repos} · 快照 {snapshots} · 配置 {configs} · 有问题 {problems} · 云盘残留 {orphans}',
+        detailDirty: '{n} 个未提交改动',
+        stateOk: '正常',
+        stateBehind: '落后',
+        stateMissing: '缺失',
+        stateSkipped: '跳过',
+        uploadUploaded: '已上传',
+        uploadUploading: '上传中',
+        uploadStale: '未上传云端',
+        uploadUnknown: '上传状态未知',
       },
       en: {
         nav: 'Backup',
@@ -109,6 +127,19 @@ window.__ModuleLoader__.load({
         reasonFailureNewer: 'The most recent failure was not superseded by a later success',
         reasonCommandFailed: 'The status command exited with code {code}',
         reasonUnconfigured: 'No backup source is configured',
+        reasonStatusJsonFailed: 'The configured JSON status command did not return a parsable document',
+        detail: 'Backup detail',
+        detailIntro: 'From backup-dev.sh --status --json — the same verdict the macOS panel shows.',
+        detailCounts: 'repos {repos} · snapshots {snapshots} · configs {configs} · problems {problems} · orphans {orphans}',
+        detailDirty: '{n} uncommitted change(s)',
+        stateOk: 'ok',
+        stateBehind: 'behind',
+        stateMissing: 'missing',
+        stateSkipped: 'skipped',
+        uploadUploaded: 'uploaded',
+        uploadUploading: 'uploading',
+        uploadStale: 'not uploaded',
+        uploadUnknown: 'upload state unknown',
       },
     }
 
@@ -127,6 +158,48 @@ window.__ModuleLoader__.load({
       return format(t, 'hoursAgo', { n: Math.round(ageHours) })
     }
 
+    function stateMark(state) {
+      if (state === 'ok') return '✓'
+      if (state === 'skipped') return '!'
+      return '✗'
+    }
+
+    function stateText(t, state) {
+      switch (state) {
+        case 'ok': return t('stateOk')
+        case 'behind': return t('stateBehind')
+        case 'missing': return t('stateMissing')
+        case 'skipped': return t('stateSkipped')
+        default: return state || t('stateMissing')
+      }
+    }
+
+    function uploadText(t, upload) {
+      switch (upload) {
+        case 'uploaded': return t('uploadUploaded')
+        case 'uploading': return t('uploadUploading')
+        case 'stale': return t('uploadStale')
+        case 'unknown-nomdls':
+        case 'unknown-cloud': return t('uploadUnknown')
+        default: return null
+      }
+    }
+
+    /** One target, one line: the script's own sentence first, then the machine facts. */
+    function detailLine(t, target) {
+      const parts = []
+      if (target.message) parts.push(target.message)
+      parts.push(stateText(t, target.state))
+      const upload = uploadText(t, target.upload)
+      if (upload !== null) parts.push(upload)
+      const when = stamp(target.at)
+      if (when !== '—') parts.push(when)
+      if (Number.isFinite(target.dirty) && target.dirty > 0) {
+        parts.push(format(t, 'detailDirty', { n: target.dirty }))
+      }
+      return parts.join(' · ')
+    }
+
     function levelText(t, level) {
       if (level === 'ok') return t('levelOk')
       if (level === 'warn') return t('levelWarn')
@@ -136,6 +209,13 @@ window.__ModuleLoader__.load({
 
     /** Turn a machine-readable reason into a sentence, so the panel explains itself. */
     function reasonText(t, reason) {
+      // 引擎（dev-backup.status/1）给的原因：码是机器可读的英文标识，句子由脚本给出 ——
+      // 脚本输出保持中文（它是与 launchd、文档、自测共用的事实源，不在这里另翻一份）。
+      if (typeof reason?.code === 'string' && reason.code.startsWith('engine:')) {
+        const code = reason.code.slice('engine:'.length)
+        const where = reason.target && reason.target !== '-' ? `${reason.target}：` : ''
+        return `[${code}] ${where}${reason.message ?? ''}`
+      }
       switch (reason?.code) {
         case 'stale': return format(t, 'reasonStale', { n: Math.round(reason.staleAfterHours ?? 0) })
         case 'freshness-missing': return format(t, 'reasonMissing', { path: reason.path ?? '' })
@@ -145,6 +225,7 @@ window.__ModuleLoader__.load({
         case 'failure-not-superseded': return t('reasonFailureNewer')
         case 'command-failed': return format(t, 'reasonCommandFailed', { code: reason.exitCode ?? '?' })
         case 'unconfigured': return t('reasonUnconfigured')
+        case 'status-json-failed': return t('reasonStatusJsonFailed')
         default: return null
       }
     }
@@ -241,6 +322,43 @@ window.__ModuleLoader__.load({
           data && (data.level === 'unknown'
             || (data.explicitlyConfigured === false && data.freshness?.missing === true))
             ? jsx('p', { className: 'dshBackupIntro', children: t('notConfigured') })
+            : null,
+
+          // 明细：只有配置了 JSON 源才出现（陌生人装了不会看到空壳）。判定来自脚本，
+          // 这里只负责画出来 —— 面板与插件显示同一份文档，不可能各说各话。
+          data?.engine?.configured
+            ? jsxs('div', {
+                className: 'dshBackupRows',
+                children: [
+                  jsx('div', { className: 'dshBackupLabel', children: t('detail') }),
+                  jsx('p', { className: 'dshBackupMeta', children: t('detailIntro') }),
+                  data.engine.document
+                    ? jsx('p', {
+                        className: 'dshBackupMeta',
+                        children: format(t, 'detailCounts', {
+                          repos: data.engine.document.counts?.repos ?? 0,
+                          snapshots: data.engine.document.counts?.snapshots ?? 0,
+                          configs: data.engine.document.counts?.configs ?? 0,
+                          problems: data.engine.document.counts?.problems ?? 0,
+                          orphans: data.engine.document.counts?.orphans ?? 0,
+                        }),
+                      })
+                    : jsx('p', { className: 'dshBackupMeta', children: t('reasonStatusJsonFailed') }),
+                  data.engine.document
+                    ? jsx('ul', {
+                        className: 'dshBackupDetail',
+                        children: data.engine.document.targets.map((target, index) => jsxs('li', {
+                          className: 'dshBackupDetailItem',
+                          children: [
+                            jsx('span', { className: 'dshBackupDetailMark', children: stateMark(target.state) }),
+                            jsx('span', { className: 'dshBackupDetailLabel', children: target.label }),
+                            jsx('span', { className: 'dshBackupDetailText', children: detailLine(t, target) }),
+                          ],
+                        }, `${target.kind}-${target.label}-${index}`)),
+                      })
+                    : null,
+                ],
+              })
             : null,
 
           jsxs('div', {

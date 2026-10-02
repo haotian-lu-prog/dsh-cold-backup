@@ -4,16 +4,21 @@
 
 ## 当前写者
 
-- 工具：（空 —— 2026-10-02 DSH 会话已收工：只记录决策，未改代码）
+- 工具：（空 —— 2026-10-02 DSH 会话已收工：JSON 契约落地）
 - 分支：main
 - 开始时间：—
+- 本轮：新增 `statusJsonCommand` 消费 `dev-backup.status/1`（与 macOS 面板同一份判定）、
+  面板渲染逐目标明细、26 项测试全绿；`package.json` 升到 **1.1.0（尚未发布 npm）**。
 
 > 一个仓库同一时刻只允许一个写者。下一位把上一行改成自己，并先读完下面的状态。
 
 ## 当前状态
 
+**2026-10-02 追加（二）：插件已能消费 `dev-backup.status/1`（`statusJsonCommand`），
+与 macOS 面板从此读同一份判定；只读性质不变。`npm test` 26/26。**
+
 **2026-10-02 追加：已评估并否决「把 `dev-backup-runner` 复刻进本插件」——结论是只取只读呈现层，
-不搬引擎/调度/权限；本轮只记录、未改代码。理由与本轮实测证据见 `docs/decisions.md` 顶部。**
+不搬引擎/调度/权限；理由与本轮实测证据见 `docs/decisions.md` 顶部。**
 
 **四件事全部完成：插件已做完并真机验证、已发 npm、已公开发 GitHub、市场投稿 PR 已提交且 CI 通过。**
 只剩维护者评审合并（不由我们控制）。
@@ -127,10 +132,11 @@
 
 ## 未决问题
 
-- **结构化的只读增强（2026-10-02 新增，来自「是否复刻 runner」那一轮）**：面板现在只有「最近成功 /
-  launchd / 最近失败 / 状态命令」四条汇总。要做「每个仓库一行、带新鲜度与云端上传状态」，得先给
-  `backup-dev.sh --status` 加 `--json`（`_shared` 的活），本插件只消费契约、**不重算规则** ——
-  否则就是第三份实现（现在已经有两份且漂移：面板 `App.swift` 用 `>`，本插件用 `>=`）。
+- [x] ~~结构化的只读增强~~ → **已完成**：`backup-dev.sh --status --json`（契约 `dev-backup.status/1`）
+  + 本插件的 `statusJsonCommand`，判定权交给脚本。剩下的是「本机没 Swift 工具链」那件事
+  （面板侧已改完源码、编译不了，见 `_shared/HANDOFF.md` 未决问题）。
+- **`1.1.0` 还没发布**：`package.json` 已升版、`origin/main` 上是新代码，npm 上仍是 `1.0.0`。
+  要发就按 `docs/market-submission.md` 的 Release 流程走（trusted publishing 是否已配好未确认）。
 - **默认配置偏「冷备约定」**：`freshnessFile` / `failureFile` 默认指向
   `~/Library/Logs/dev-backup/*`。好处是作者本人开箱即用；代价是陌生人装上后要先改路径才有意义
   （面板会明确提示「尚未配置」，不会假装正常）。是否改成「空默认值 + 引导」，待定。
