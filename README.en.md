@@ -33,14 +33,23 @@ in the same second, and `>` would silently hide exactly that case (see `docs/dec
 - **Identity that cannot drift** — the package name, `cordis.patch.yml` id, Host `ENTRY_ID` and Client
   module id are pinned together by a test. When these four disagree the Client half *silently never
   loads*, which is the usual way plugins of this kind break.
-- **No runtime dependencies** — the Host half uses node builtins only; the single dependency is
-  `@deepseek-ai/schemastery`, used purely to declare Config.
+- **Bundled engine (v2.0)** — this package declares `cold-backup` as a dependency, so installing the
+  plugin installs the engine: no separate `npm i -g cold-backup`. The panel runs
+  `cold-backup --status --json` by default and says which engine answered (bundled dependency / PATH /
+  your own configured command). When no engine resolves it falls back to the generic sources **and
+  names the missing engine** instead of pretending everything is fine. Want it strictly passive (no
+  resolution, no process ever started)? Turn `bundledEngine` off.
+- **The Host half uses node builtins only** — the only npm dependencies unrelated to Harness are
+  `@deepseek-ai/schemastery` (Config declaration) and the engine package `cold-backup` (a bash
+  script; nothing is loaded into the JS runtime).
 
 ## Requirements
 
 - Node.js `^22.19` or `>=24`
 - DeepSeek Harness **`0.2.0-rc.2`** (verified; see `docs/evidence/`)
 - The `launchd` source is macOS-only; every other source is cross-platform
+- The bundled engine is a bash script: **macOS 3.2+ / Linux**. On Windows it is not installed (the
+  package declares `os`), the panel reports `engine-missing`, and the generic sources still work
 
 ## Install
 
@@ -60,6 +69,30 @@ npm pack
 dsh plugin --profile web-backup add ./dsh-cold-backup-<version>.tgz
 ```
 
+**The engine comes along**: `cold-backup` is a dependency of this package, so either command above
+installs it into the same profile — no extra global install.
+
+**To let git hooks / cron / other tools call the engine too** (they only know `cold-backup` on
+PATH), install one stable entry point. It resolves the path **at run time**, so upgrading the
+dependency never leaves a dangling symlink:
+
+```sh
+mkdir -p ~/.local/bin && cat > ~/.local/bin/cold-backup <<'SH'
+#!/bin/sh
+for p in "$HOME"/.dsh/profiles/*/node_modules/cold-backup/bin/cold-backup; do
+  [ -f "$p" ] && exec /bin/bash "$p" "$@"
+done
+for p in /opt/homebrew/bin/cold-backup /usr/local/bin/cold-backup; do
+  [ -x "$p" ] && exec "$p" "$@"
+done
+printf 'cold-backup: engine not found (install dsh-cold-backup, or npm i -g cold-backup)\n' >&2
+exit 127
+SH
+chmod +x ~/.local/bin/cold-backup
+```
+
+Delete it whenever you like: the plugin then goes back to "PATH only".
+
 ## Configuration
 
 Everything lives under **Settings → Plugins → dsh-cold-backup**. All fields are `volatile()`, so edits
@@ -71,7 +104,8 @@ apply immediately without a restart:
 | `failureFile` | `~/Library/Logs/cold-backup/last-failure` | Failure log (empty disables it) |
 | `launchdLabel` | empty | LaunchAgent label to inspect (empty disables it) |
 | `statusCommand` | empty | Optional self-check; exit code 0 is healthy |
-| `statusJsonCommand` | empty | Optional: a command printing a `cold-backup.status/1` document (e.g. `cold-backup --status --json`). When it parses, its verdict drives the panel and its per-target detail is rendered |
+| `statusJsonCommand` | empty | Optional: a command printing a `cold-backup.status/1` document (e.g. `cold-backup --status --json`). When it parses, its verdict drives the panel and its per-target detail is rendered. Left empty, the bundled engine is used instead (highest priority; this is **operator configuration** and is never reused by anything that writes) |
+| `bundledEngine` | `true` | Resolve and use the engine this package depends on (falling back to PATH). Turn off to keep the plugin strictly passive: file / launchd sources only, nothing resolved, no process started |
 | `staleAfterHours` | `36` | Older than this many hours is reported as stale |
 | `refreshSeconds` | `30` | Panel polling interval |
 
@@ -128,17 +162,27 @@ as a launchd job. The plugin only reads those artifacts — it never writes, tri
 anything, which is why it is safe to leave running.
 
 **The companion backup engine is [`cold-backup`](https://github.com/haotian-lu-prog/cold-backup)**
-(`npm i -g cold-backup` — a dependency-free bash CLI for macOS and Linux):
+(a dependency-free bash CLI for macOS and Linux). Since v2.0 it is a **dependency of this package**,
+so installing the plugin brings the engine; an empty `statusJsonCommand` is filled in with
+`<engine> --status --json`:
 
 ```sh
-npm i -g cold-backup      # engine: bundles + snapshots + config whitelist → your synced folder
-cold-backup --init        # write a config; set ROOT and DEST
-cold-backup schedule install
+cold-backup --init        # write a config; set ROOT and DEST (once)
+cold-backup --status      # look manually; the panel shows the very same verdict
 ```
 
-It is **not required**: any scheme that writes `last-ok` / `last-failure`, or that can print a
-`cold-backup.status/1` document, works with this panel. The reverse is also true — `cold-backup`
-does not need this plugin; the plugin just brings the same verdict into the Harness UI.
+Priority is **your command > bundled dependency > PATH**, and the panel's *Engine* row tells you which
+one answered. The other two routes still work exactly as before:
+
+- `cold-backup` can still be installed **globally only** (`npm i -g cold-backup`) — the engine then
+  comes from PATH and nothing else changes;
+- it is **not required**: any scheme that writes `last-ok` / `last-failure`, or that can print a
+  `cold-backup.status/1` document, works with this panel. The reverse is also true — `cold-backup`
+  does not need this plugin; the plugin just brings the same verdict into the Harness UI.
+
+> **About `statusCommand` / `statusJsonCommand`**: these are **operator-configured shell commands** —
+  your machine, your choice. The plugin's action layer (v2.0 step 2) will **never reuse** them, and no
+  request content ever builds a command line. See the security model in `docs/decisions.md`.
 
 ## License
 

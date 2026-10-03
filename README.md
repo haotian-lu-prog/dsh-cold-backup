@@ -31,14 +31,21 @@
 - **自动刷新** —— 面板打开期间按 `refreshSeconds` 轮询 Host 半侧的路由，另有「立即刷新」。
 - **三处联动的一致性** —— 包名、`cordis.patch.yml` 的 id、Host 的 `ENTRY_ID`、Client 的模块 id
   由测试强制对齐；这四者不一致时 Client 半侧会**静默不加载**，是同类插件的常见事故。
-- **零运行时依赖** —— Host 半侧只用 node 内置模块，唯一的 dependency 是 `@deepseek-ai/schemastery`
-  （只用来声明 Config）。
+- **自带引擎（v2.0）** —— 本包把 `cold-backup` 声明为自己的依赖：**装插件就带引擎**，
+  不必再单独 `npm i -g cold-backup`。状态页默认用它跑 `cold-backup --status --json`，
+  并在面板上标明这次判定来自哪个引擎（自带依赖 / PATH / 你在设置里配的命令）。
+  解析不到引擎时，退回下面那些通用来源，并明确说出「找不到引擎」，不假装正常。
+  想让它**完全被动**（不解析、不起任何进程）：把 `bundledEngine` 关掉。
+- **Host 半侧只用 node 内置模块** —— 唯一与 Harness 无关的 npm 依赖是
+  `@deepseek-ai/schemastery`（只用来声明 Config）与引擎包 `cold-backup`（bash 脚本，不进 JS 运行时）。
 
 ## 要求
 
 - Node.js `^22.19` 或 `>=24`
 - DeepSeek Harness **`0.2.0-rc.2`**（本版本已实测；见 `docs/evidence/`）
 - `launchd` 那一项仅 macOS 可用，其他来源跨平台
+- 自带引擎是 bash 脚本：**macOS 3.2+ / Linux**。Windows 上引擎不会被装上（包声明了 `os`），
+  面板会显示 `engine-missing`，其余通用来源照常工作
 
 ## 安装
 
@@ -58,6 +65,29 @@ npm pack
 dsh plugin --profile web-backup add ./dsh-cold-backup-<版本>.tgz
 ```
 
+**引擎跟着一起来**：`cold-backup` 是本包的依赖，上面任何一条命令都会把它装进同一个 profile，
+不需要额外的全局安装。
+
+**想让 git 钩子 / cron / 别的工具也能直接调用引擎**（它们不经过插件，只认 PATH 上的
+`cold-backup`），装一个稳定入口即可 —— 它**运行时**解析路径，所以升级依赖不会留下悬空链接：
+
+```sh
+mkdir -p ~/.local/bin && cat > ~/.local/bin/cold-backup <<'SH'
+#!/bin/sh
+for p in "$HOME"/.dsh/profiles/*/node_modules/cold-backup/bin/cold-backup; do
+  [ -f "$p" ] && exec /bin/bash "$p" "$@"
+done
+for p in /opt/homebrew/bin/cold-backup /usr/local/bin/cold-backup; do
+  [ -x "$p" ] && exec "$p" "$@"
+done
+printf 'cold-backup: 找不到引擎（装 dsh-cold-backup 插件，或 npm i -g cold-backup）\n' >&2
+exit 127
+SH
+chmod +x ~/.local/bin/cold-backup
+```
+
+不想要它就直接删掉：行为回到「只认 PATH 上的全局安装」。
+
 ## 配置
 
 在 **设置 → 插件 → dsh-cold-backup** 里改，全部字段都标了 `volatile()`，改完立即生效、不用重启：
@@ -68,7 +98,8 @@ dsh plugin --profile web-backup add ./dsh-cold-backup-<版本>.tgz
 | `failureFile` | `~/Library/Logs/cold-backup/last-failure` | 失败记录（留空关闭） |
 | `launchdLabel` | 空 | 要检查的 LaunchAgent label（留空关闭） |
 | `statusCommand` | 空 | 可选自检命令，退出码 0 视为正常 |
-| `statusJsonCommand` | 空 | 可选：打印 `cold-backup.status/1` JSON 的命令（例如 `cold-backup --status --json`）。解析成功时以它的判定为准，并显示逐目标明细 |
+| `statusJsonCommand` | 空 | 可选：打印 `cold-backup.status/1` JSON 的命令（例如 `cold-backup --status --json`）。解析成功时以它的判定为准，并显示逐目标明细。留空时自动改用自带引擎（优先级最高；这是**操作者配置**，动作层绝不复用它） |
+| `bundledEngine` | `true` | 是否解析并使用本包依赖的引擎（回退 PATH）。关掉后插件完全被动：只读文件 / launchd 来源，不解析、不起任何进程 |
 | `staleAfterHours` | `36` | 超过这么多小时没成功就报「需要留意」 |
 | `refreshSeconds` | `30` | 面板轮询间隔 |
 
@@ -98,7 +129,7 @@ npm test
 
 ## JSON 契约（`cold-backup.status/1`）
 
-`statusJsonCommand` 读的是一份**跨工具共用**的判定：配套的 macOS 面板（`Backup.app`）读的是同一份，
+`statusJsonCommand`（留空时用自带引擎）读的是一份**跨工具共用**的判定：任何别的消费方读的也是同一份，
 所以两处显示不可能各说各话。
 
 | 字段 | 含义 |
@@ -120,17 +151,25 @@ npm test
 插件只读这些产物，不写、不触发、不删除任何东西——所以它可以安全地常开。
 
 **配套的备份引擎是 [`cold-backup`](https://github.com/haotian-lu-prog/cold-backup)**
-（`npm i -g cold-backup`，无依赖的 bash CLI，macOS / Linux）：
+（无依赖的 bash CLI，macOS / Linux）。从 v2.0 起它是**本包的依赖**，装插件即带引擎；
+在设置里留空的 `statusJsonCommand` 会被自动替成 `<引擎> --status --json`：
 
 ```sh
-npm i -g cold-backup      # 备份引擎：bundle + 快照 + 配置白名单 → 你的同步目录
-cold-backup --init        # 生成配置，填 ROOT 与 DEST
-cold-backup schedule install
+cold-backup --init        # 生成配置，填 ROOT 与 DEST（一次性）
+cold-backup --status      # 手动看一眼；插件面板显示的是同一份判定
 ```
 
-它**不是必需的**：任何写出 `last-ok` / `last-failure`、或能输出 `cold-backup.status/1` 文档的
-备份方案都能接这个面板。反过来，`cold-backup` 也不依赖本插件——它自带 `--status`，
-本插件只是把同一份判定搬进了 Harness 的 UI。
+优先级是**你配的命令 > 自带依赖 > PATH**；面板上的「引擎」一行会告诉你实际用的是哪一个。
+另外两条路仍然完全可用：
+
+- `cold-backup` **也可以只装全局**（`npm i -g cold-backup`）——那时引擎来自 PATH，行为不变；
+- 它**不是必需的**：任何写出 `last-ok` / `last-failure`、或能输出 `cold-backup.status/1` 文档的
+  备份方案都能接这个面板。反过来，`cold-backup` 也不依赖本插件——它自带 `--status`，
+  本插件只是把同一份判定搬进了 Harness 的 UI。
+
+> **关于 `statusCommand` / `statusJsonCommand`**：它们是**操作者配置的 shell 命令**，
+> 属于你自己的机器、你自己的选择。插件的动作能力（v2.0 第二步）**绝不会复用**它们，
+> 也不会由任何请求内容构造命令 —— 见 `docs/decisions.md` 的安全模型。
 
 ## 许可证
 

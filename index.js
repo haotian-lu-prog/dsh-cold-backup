@@ -21,6 +21,8 @@ import { join } from 'node:path'
 import { promisify } from 'node:util'
 import z from '@deepseek-ai/schemastery'
 
+import { resolveEngine } from './engine.js'
+
 export const name = 'dsh-cold-backup'
 export const inject = ['webServer']
 
@@ -59,7 +61,12 @@ export const Config = z.object({
   statusJsonCommand: z.string().default('').volatile()
     .description('Optional command printing a cold-backup.status/1 JSON document, e.g. '
       + '"cold-backup --status --json" (npm i -g cold-backup). When it parses, its verdict drives the '
-      + 'panel and its per-target detail is shown. Empty to disable.'),
+      + 'panel and its per-target detail is shown. Empty to disable. Takes priority over the bundled '
+      + 'engine below; operator config is never reused by anything that writes.'),
+  bundledEngine: z.boolean().default(true).volatile()
+    .description('Use the cold-backup engine this package depends on (v2.0+), with a fallback to '
+      + '`cold-backup` on PATH. Turn off to keep the plugin strictly passive: it then reads only the '
+      + 'file / launchd sources below and starts no process at all.'),
   staleAfterHours: z.natural().default(36).volatile()
     .description('A last success older than this many hours is reported as stale.'),
   refreshSeconds: z.natural().min(5).max(3600).default(30).volatile()
@@ -251,6 +258,12 @@ export function evaluateStatus(input, options = {}) {
     return { level: 'unknown', reasons: [{ code: 'unconfigured' }], ageHours: null }
   }
 
+  // Nothing has been recorded yet AND the engine that would record it is missing: name the actual
+  // fix instead of leaving the panel at a bare "no successful backup yet".
+  if (input.engineMissing && freshness && freshness.missing && !launchd && !input.command) {
+    reasons.push({ code: 'engine-missing' })
+  }
+
   if (freshness && freshness.missing) {
     reasons.push({ code: 'freshness-missing', path: freshness.path })
   }
@@ -362,6 +375,26 @@ async function runJsonStatusCommand(command) {
   }
 }
 
+/**
+ * Run a resolved engine with a **fixed argv** — `/bin/bash <engine> --status --json`. No shell is
+ * involved and no part of the argv comes from a request, so there is nothing to quote or escape.
+ * Like `runJsonStatusCommand`, stdout is kept even on a non-zero exit: a healthy document and
+ * exit code 1 arrive together whenever the backup itself has a problem.
+ */
+async function runEngineJson(argv) {
+  if (!Array.isArray(argv) || argv.length < 2) return null
+  try {
+    const { stdout, stderr } = await execFileAsync('/bin/bash', argv, { timeout: 60_000, maxBuffer: 4 << 20 })
+    return { exitCode: 0, output: String(stdout || stderr) }
+  } catch (error) {
+    return {
+      exitCode: Number.isFinite(error?.code) ? error.code : 1,
+      output: String(error?.stdout || error?.stderr || ''),
+      error: String(error?.message ?? error),
+    }
+  }
+}
+
 /** Collect one snapshot. `deps` is injectable so tests never touch the real machine. */
 export async function collectStatus(config, deps = {}) {
   const read = {
@@ -370,30 +403,53 @@ export async function collectStatus(config, deps = {}) {
     launchd: deps.readLaunchd ?? readLaunchd,
     command: deps.runStatusCommand ?? runStatusCommand,
     jsonCommand: deps.runJsonStatusCommand ?? runJsonStatusCommand,
+    engineJson: deps.runEngineJson ?? runEngineJson,
   }
   const home = deps.home ?? homedir()
   const freshnessPath = expandHome(config.freshnessFile, home)
   const failurePath = expandHome(config.failureFile, home)
+
+  // Where does the engine come from? (v2.0: this package depends on `cold-backup`, so the common
+  // install needs no global CLI; a machine that only has the global CLI keeps working.) The path
+  // is resolved here and never derived from a request — the only inputs are this package's own
+  // module resolution and PATH.
+  const bundledEngine = config.bundledEngine !== false
+  const engineInfo = bundledEngine
+    ? (deps.resolveEngine ?? resolveEngine)(deps.engineOptions)
+    : { path: null, source: null, version: null, reason: 'disabled' }
+  const explicitJsonCommand = typeof config.statusJsonCommand === 'string' ? config.statusJsonCommand.trim() : ''
+  // Priority: operator config > bundled dependency > PATH (resolved above in that order).
+  const enginePlan = explicitJsonCommand
+    ? { mode: 'config', source: 'config', path: null, version: null, command: explicitJsonCommand, argv: null }
+    : engineInfo.path
+      ? { mode: 'engine', source: engineInfo.source, path: engineInfo.path, version: engineInfo.version, command: null,
+          argv: [engineInfo.path, '--status', '--json'] }
+      : { mode: 'none', source: null, path: null, version: engineInfo.version ?? null, command: null, argv: null }
 
   const [freshness, failure, launchd, command, engineRun] = await Promise.all([
     read.freshness(freshnessPath),
     read.failure(failurePath),
     read.launchd(config.launchdLabel),
     read.command(config.statusCommand),
-    read.jsonCommand(config.statusJsonCommand),
+    enginePlan.mode === 'config' ? read.jsonCommand(enginePlan.command)
+      : enginePlan.mode === 'engine' ? read.engineJson(enginePlan.argv)
+        : null,
   ])
 
-  // The JSON contract, shared with the macOS panel. `document` is null when the source is off, when
-  // the command printed nothing usable, or when the document is not ours — the two cases are told
-  // apart below, because "not configured" must never look like "broken".
-  const engine = config.statusJsonCommand
-    ? {
+  // The JSON contract, shared with the macOS panel. `document` is null when no source ran, when the
+  // command printed nothing usable, or when the document is not ours — those cases are told apart
+  // below, because "not configured" must never look like "broken".
+  const engine = enginePlan.mode === 'none'
+    ? null
+    : {
         configured: true,
+        source: enginePlan.source,
+        path: enginePlan.path,
+        version: enginePlan.version,
         exitCode: engineRun === null ? null : engineRun.exitCode,
         document: parseStatusJson(engineRun?.output ?? ''),
         output: null,
       }
-    : null
   if (engine !== null && engine.document === null) {
     engine.output = String(engineRun?.output ?? engineRun?.error ?? '').trim().slice(0, 1000)
   }
@@ -405,6 +461,10 @@ export async function collectStatus(config, deps = {}) {
     command,
     document: engine?.document ?? null,
     engineFailed: Boolean(engine && engine.document === null),
+    // The engine was *expected* (the bundled dependency or something on PATH) but is nowhere to
+    // be found: worth a reason of its own, because "install the engine" and "no backup has run
+    // yet" need different fixes. Only reported when it is the reason the panel is empty.
+    engineMissing: enginePlan.mode === 'none' && bundledEngine,
   }, {
     staleAfterHours: config.staleAfterHours,
     now: deps.now,
@@ -426,6 +486,12 @@ export async function collectStatus(config, deps = {}) {
     reasons: evaluated.reasons,
     ageHours: evaluated.ageHours,
     explicitlyConfigured,
+    // Which engine produced the document (null when none ran), and where it came from. Kept
+    // top-level and flat: it is what the acceptance test and the panel both check.
+    engineSource: engine?.source ?? null,
+    engineVersion: enginePlan.version ?? null,
+    enginePath: enginePlan.path ?? null,
+    engineMissing: enginePlan.mode === 'none' && bundledEngine,
     freshness,
     failure,
     launchd,
@@ -437,6 +503,7 @@ export async function collectStatus(config, deps = {}) {
       launchdLabel: config.launchdLabel,
       statusCommand: config.statusCommand,
       statusJsonCommand: config.statusJsonCommand,
+      bundledEngine,
       staleAfterHours: config.staleAfterHours,
       refreshSeconds: config.refreshSeconds,
     },
@@ -457,6 +524,7 @@ function readConfig(config) {
     launchdLabel: readField(config.launchdLabel, ''),
     statusCommand: readField(config.statusCommand, ''),
     statusJsonCommand: readField(config.statusJsonCommand, ''),
+    bundledEngine: readField(config.bundledEngine, true),
     staleAfterHours: readField(config.staleAfterHours, 36),
     refreshSeconds: readField(config.refreshSeconds, 30),
   }

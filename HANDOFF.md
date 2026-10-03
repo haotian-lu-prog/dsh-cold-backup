@@ -4,14 +4,23 @@
 
 ## 当前写者
 
-- 工具：（空 —— 2026-10-03 DSH 会话已收工：**v2.0 已定案，实施未开工**）
+- 工具：（空 —— 2026-10-03 DSH 会话已收工：**v2.0 第 1 步已实现并真机验收通过；未发布**）
 - 分支：main
 - 开始时间：—
-- 本轮：**v2.0 定案**（插件从「只读监视器」升级为「自带引擎 + 可选动作」）。落两份文档：
-  ① `docs/decisions.md` 新增一条正式记录 —— 动作边界（四条已定）、安全模型（通道 / 信任判据 /
-  威胁模型 / 前提）、进度契约（含「为什么不能从日志画进度」的实测证据）；
-  ② `docs/plan-2.0.md`（新文件）—— 第 1 步「引擎并入插件」的实施清单、可执行验收、回滚与风险。
-  **本轮不动 `index.js` / `client.js`**：实施是下一步的事。
+- 本轮：**v2.0 第 1 步 = 引擎并入插件**（同一天先落决策文档，再实现 + 验收）。要点：
+  ① `docs/decisions.md` 新增 v2.0 定案（动作边界四条 / 安全模型 / 进度契约，含实测证据）；
+  ② `docs/plan-2.0.md` 写清第 1 步的改动清单、验收 A1–A7、回滚与风险；
+  ③ 实现：新增 `engine.js`（依赖 → PATH → 明确失败），`index.js` 加 `bundledEngine` 开关与
+  `engineSource`/`engineVersion`/`enginePath`/`engineMissing`，`statusJsonCommand` 留空时自动用自带引擎；
+  `package.json` 加 `dependencies: cold-backup ^1.0.3`；客户端多一行「引擎」；两个 README 同步
+  （含 git 钩子要用的 shim 一行命令）；测试 28 → **37 项**（顺手把测试真正需要的
+  `@deepseek-ai/schemastery` 补成 devDependency —— 它此前没写进 package.json，靠手工装，
+  `npm install` 一跑就被当多余包清掉）；
+  ④ 验收：**A1–A7 全部通过**，证据见 `docs/evidence/e2e-v2-step1.md`。关键两条 ——
+  「一次安装 = 插件 + 引擎」（pnpm `+2 packages`）、「卸掉全局 CLI 后提交仍触发备份」
+  （`last-ok` 14:05:58 → 14:19:02，全程只有 profile 里那份引擎）。
+  验收用的是一次性 profile `cb-e2e` + 独立端口 19998，**没碰在用的 `desktop`**；完事已回滚
+  （profile 删除、全局 CLI 装回、shim 移除、端口释放）。
 - 上一轮：**改名** —— 插件 `dsh-dev-backup` → **`dsh-cold-backup`**，与引擎 CLI
   `dev-backup` → **`cold-backup`** 同步：包名、Cordis 入口 id、路由 `/dsh-cold-backup/status`、
   默认路径 `~/Library/Logs/cold-backup/*`、JSON 契约前缀 `cold-backup.status/` 全部换成新名，
@@ -193,9 +202,13 @@
 
 ## 下一步
 
-- [ ] **（v2.0 第 1 步，已定案）把引擎并入插件** —— 装一个包就带引擎，不再需要
-      `npm i -g cold-backup`。实施清单、验收 A1–A7、回滚与风险见 [`docs/plan-2.0.md`](docs/plan-2.0.md)。
-      **未开工**；本包目前**零运行时依赖**的现状保持不变，直到开工。
+- [x] ~~**（v2.0 第 1 步）把引擎并入插件**~~ → **2026-10-03 已实现 + 真机验收通过**
+      （A1–A7，证据 `docs/evidence/e2e-v2-step1.md`）。**未发布**：版本号仍是 `1.1.1`，
+      发版时提到 **`1.2.0`**（第 2 步留给 `2.0.0`）。
+      ⚠️ 两个只在本机验过的点，发版前值得再确认一次：① 从 **npm 装的正式包**（而不是本地 tarball）
+      也带依赖；② 用户按 README 装 shim 后，git 钩子仍能找到引擎。
+- [ ] **（发布动作，待用户定）** v2.0 第 1 步要不要单独发一版 `1.2.0`？用户 2026-10-03 明确
+      「先不着急发布，验收成功之后再说」—— 验收已通过，等他拍板。
 - [ ] **（v2.0 第 2 步，已定案待排期）动作层** —— POST + 信任判据（照抄
       `dsh-archived/lib/host/trust.js`）、T1/T2 默认开、T3（`--verify --fix` /
       `--prune-orphans --apply`）进 UI 但**默认关 + 二次确认**、进度契约（引擎

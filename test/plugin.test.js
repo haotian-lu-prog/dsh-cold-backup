@@ -1,10 +1,14 @@
 // Tests for dsh-cold-backup. `node --test`, no live Harness required: the Host half is written
 // as pure functions plus one injectable collector, so every rule is covered here.
 import assert from 'node:assert/strict'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { test } from 'node:test'
 
+import { resolveEngine } from '../engine.js'
 import {
   DEFAULT_FAILURE_FILE,
   DEFAULT_FRESHNESS_FILE,
@@ -49,6 +53,10 @@ const IDLE_READERS = {
   readFailureFile: async () => null,
   readLaunchd: async () => null,
   runStatusCommand: async () => null,
+  // v2.0: the collector resolves an engine by default (dependency → PATH). Tests must never let
+  // that reach the real machine — this suite only ever touches mktemp fixtures — so the base
+  // readers pin "no engine installed" and the engine cases below opt in explicitly.
+  resolveEngine: () => ({ path: null, source: null, version: null, reason: 'missing-dependency' }),
 }
 
 const root = fileURLToPath(new URL('..', import.meta.url))
@@ -178,6 +186,9 @@ test('collectStatus wires the injected readers and expands configured paths', as
       readFailureFile: async path => { calls.push(['failure', path]); return null },
       readLaunchd: async label => { calls.push(['launchd', label]); return { label, loaded: true, state: 'not running', lastExitCode: 0, runs: 1 } },
       runStatusCommand: async command => { calls.push(['command', command]); return { exitCode: 0, output: 'fine' } },
+      // Pin "no engine": without this the collector would resolve the engine this repo depends on
+      // and actually run it against the developer's own machine.
+      resolveEngine: IDLE_READERS.resolveEngine,
     },
   )
 
@@ -212,11 +223,14 @@ test('collectStatus marks an untouched default config as not explicitly configur
       readFailureFile: async () => null,
       readLaunchd: async () => null,
       runStatusCommand: async () => null,
+      // Same pin as above. With no engine AND no record, the panel now names the engine too:
+      // "install the engine" and "no backup has run yet" need different fixes.
+      resolveEngine: IDLE_READERS.resolveEngine,
     },
   )
   assert.equal(snapshot.explicitlyConfigured, false)
   assert.equal(snapshot.level, 'bad', 'health must not be softened by the hint flag')
-  assert.deepEqual(snapshot.reasons.map(r => r.code), ['freshness-missing'])
+  assert.deepEqual(snapshot.reasons.map(r => r.code), ['engine-missing', 'freshness-missing'])
 })
 
 // The counterpart, and the case that caught a bug in the first attempt: someone who simply
@@ -386,6 +400,177 @@ test('collectStatus leaves the generic path untouched when no JSON source is set
   assert.deepEqual(payload.reasons, [])
 })
 
+// ── v2.0: where the engine comes from, and how it is run ─────────────────────────────────────
+// The point: the engine is resolved from this package (dependency) or from PATH, and it is run
+// with a **fixed argv** — nothing a caller sends can influence either. Every fixture is a mktemp
+// directory; the real machine is never consulted.
+
+const ENGINE_STUB = '#!/bin/bash\nexit 0\n'
+
+/** Build a throwaway tree; returns its path. `files` maps a relative path to its content. */
+function engineFixture(files) {
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-cb-engine-'))
+  for (const [relative, content] of Object.entries(files)) {
+    mkdirSync(join(dir, dirname(relative)), { recursive: true })
+    writeFileSync(join(dir, relative), content)
+  }
+  return dir
+}
+
+const NO_DEPENDENCY = { resolve: () => { throw new Error('not installed') } }
+
+test('resolveEngine prefers the dependency this package declares', () => {
+  const dir = engineFixture({
+    'bin/cold-backup': ENGINE_STUB,
+    'package.json': JSON.stringify({ name: 'cold-backup', version: '9.9.9' }),
+  })
+  try {
+    const resolved = resolveEngine({
+      require: { resolve: () => join(dir, 'package.json') },
+      env: { PATH: '/nowhere' },
+      platform: 'darwin',
+    })
+    assert.equal(resolved.source, 'dependency')
+    assert.equal(resolved.path, join(dir, 'bin', 'cold-backup'))
+    assert.equal(resolved.version, '9.9.9')
+    assert.equal(resolved.reason, null)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('resolveEngine falls back to PATH when the dependency is absent (the pre-2.0 setup)', () => {
+  const dir = engineFixture({ 'cold-backup': ENGINE_STUB })
+  try {
+    const resolved = resolveEngine({
+      require: NO_DEPENDENCY,
+      env: { PATH: `/nowhere:${dir}` },
+      platform: 'linux',
+    })
+    assert.equal(resolved.source, 'path')
+    assert.equal(resolved.path, join(dir, 'cold-backup'))
+    // A PATH copy carries no version we can trust without running it, so we report none.
+    assert.equal(resolved.version, null)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('resolveEngine says which kind of "missing" it is', () => {
+  assert.deepEqual(
+    resolveEngine({ require: NO_DEPENDENCY, env: { PATH: '/nowhere' }, platform: 'darwin' }),
+    { path: null, source: null, version: null, reason: 'missing-dependency' },
+  )
+  // A resolvable manifest whose binary is gone is a broken install, not an absent one.
+  const dir = engineFixture({ 'package.json': JSON.stringify({ name: 'cold-backup', version: '1.0.3' }) })
+  try {
+    const resolved = resolveEngine({
+      require: { resolve: () => join(dir, 'package.json') },
+      env: { PATH: '/nowhere' },
+      platform: 'darwin',
+    })
+    assert.equal(resolved.reason, 'missing-binary')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('resolveEngine refuses platforms the engine does not ship for', () => {
+  const resolved = resolveEngine({ require: NO_DEPENDENCY, env: { PATH: '/nowhere' }, platform: 'win32' })
+  assert.equal(resolved.path, null)
+  assert.equal(resolved.reason, 'unsupported-platform')
+})
+
+test('collectStatus runs the resolved engine with a fixed argv and reports its provenance', async () => {
+  const seen = []
+  const payload = await collectStatus(
+    {},
+    {
+      ...IDLE_READERS,
+      resolveEngine: () => ({ path: '/opt/engine/cold-backup', source: 'dependency', version: '1.0.3', reason: null }),
+      runEngineJson: async (argv) => { seen.push(argv); return { exitCode: 0, output: STATUS_JSON } },
+      home: '/Users/x',
+    },
+  )
+  // The whole argv: the resolved path plus two constants. Nothing from config, nothing from a caller.
+  assert.deepEqual(seen, [['/opt/engine/cold-backup', '--status', '--json']])
+  assert.equal(payload.engineSource, 'dependency')
+  assert.equal(payload.engineVersion, '1.0.3')
+  assert.equal(payload.enginePath, '/opt/engine/cold-backup')
+  assert.equal(payload.engine.document.targets.length, 2)
+  assert.equal(payload.level, 'bad')
+})
+
+test('a configured JSON command still wins over the engine', async () => {
+  let engineRan = 0
+  const payload = await collectStatus(
+    { statusJsonCommand: 'my-own-status --json' },
+    {
+      ...IDLE_READERS,
+      resolveEngine: () => ({ path: '/opt/engine/cold-backup', source: 'dependency', version: '1.0.3', reason: null }),
+      runJsonStatusCommand: async () => ({ exitCode: 0, output: STATUS_JSON }),
+      runEngineJson: async () => { engineRan += 1; return { exitCode: 0, output: STATUS_JSON } },
+      home: '/Users/x',
+    },
+  )
+  assert.equal(engineRan, 0)
+  assert.equal(payload.engineSource, 'config')
+  assert.equal(payload.enginePath, null)
+  assert.equal(payload.config.statusJsonCommand, 'my-own-status --json')
+})
+
+test('bundledEngine: false keeps the plugin strictly passive', async () => {
+  let resolverCalls = 0
+  let engineRuns = 0
+  const payload = await collectStatus(
+    { bundledEngine: false },
+    {
+      ...IDLE_READERS,
+      resolveEngine: () => { resolverCalls += 1; return { path: '/opt/engine/cold-backup', source: 'dependency', version: '1.0.3', reason: null } },
+      runEngineJson: async () => { engineRuns += 1; return { exitCode: 0, output: STATUS_JSON } },
+      home: '/Users/x',
+    },
+  )
+  assert.equal(resolverCalls, 0)
+  assert.equal(engineRuns, 0)
+  assert.equal(payload.engine, null)
+  assert.equal(payload.engineSource, null)
+  assert.equal(payload.config.bundledEngine, false)
+})
+
+test('a missing engine is named when it is the reason the panel has nothing to show', async () => {
+  const payload = await collectStatus(
+    {},
+    {
+      ...IDLE_READERS,
+      readFreshnessFile: async () => ({ path: '/Users/x/last-ok', missing: true, at: null }),
+      resolveEngine: () => ({ path: null, source: null, version: null, reason: 'missing-dependency' }),
+      home: '/Users/x',
+    },
+  )
+  // Root cause first, then the symptom it explains.
+  assert.deepEqual(payload.reasons.map(reason => reason.code), ['engine-missing', 'freshness-missing'])
+  assert.equal(payload.engineMissing, true)
+  // Same level a missing backup record has always had: the record should be there. The Client half
+  // pairs it with the "not set up yet" hint for an untouched install, so it never reads as a scare.
+  assert.equal(payload.level, 'bad')
+})
+
+test('a missing engine stays quiet when another source explains the panel', async () => {
+  const payload = await collectStatus(
+    {},
+    {
+      ...IDLE_READERS,
+      readFreshnessFile: async () => ({ path: '/Users/x/last-ok', missing: false, at: 1_790_931_285_000 }),
+      resolveEngine: () => ({ path: null, source: null, version: null, reason: 'missing-dependency' }),
+      home: '/Users/x',
+      now: 1_790_931_285_000 + 60_000,
+    },
+  )
+  assert.deepEqual(payload.reasons, [])
+  assert.equal(payload.level, 'ok')
+})
+
 test('the package name, patch id, ENTRY_ID and client module id all agree', async () => {
   const manifest = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'))
   const patch = await readFile(new URL('../cordis.patch.yml', import.meta.url), 'utf8')
@@ -517,7 +702,15 @@ async function renderClientPanel (data) {
   const collect = value => {
     if (value === null || value === undefined || value === false) return []
     if (Array.isArray(value)) return value.flatMap(collect)
-    if (typeof value === 'object') return collect(value.props?.children)
+    if (typeof value === 'object') {
+      // Components stay opaque to these stubs — `Row` never actually runs — so its `label` prop is
+      // followed as text too. Without that, a row's own name would be invisible to assertions.
+      const label = value.props?.label
+      return [
+        ...(typeof label === 'string' ? [label] : []),
+        ...collect(value.props?.children),
+      ]
+    }
     return [String(value)]
   }
   component({ t: key => key })
@@ -535,6 +728,9 @@ test('the client half renders the engine detail block from a cold-backup.status/
     launchd: null,
     command: null,
     engine: { configured: true, exitCode: 1, document: parseStatusJson(STATUS_JSON), output: null },
+    engineSource: 'dependency',
+    engineVersion: '1.0.3',
+    enginePath: '/opt/engine/cold-backup',
     config: { refreshSeconds: 30 },
   }
   const texts = await renderClientPanel(payload)
@@ -544,6 +740,10 @@ test('the client half renders the engine detail block from a cold-backup.status/
   assert.ok(texts.includes('scratch'), 'snapshot targets too')
   assert.ok(texts.some(text => text.startsWith('[behind] demo：')), 'engine reasons keep their code and target')
   assert.ok(texts.some(text => text.includes('stateBehind') === false && text.includes('备份落后')), 'the script sentence is shown')
+  // v2.0: the panel says which engine answered (the bundled dependency, PATH, or a configured
+  // command) — that line is how an operator notices a stale global install taking priority.
+  assert.ok(texts.includes('engine'), 'the engine provenance row must be rendered')
+  assert.ok(texts.includes('engineFromDependency'), 'and it must name the dependency as the source')
 })
 
 test('the client half says so when the JSON source is configured but unusable', async () => {

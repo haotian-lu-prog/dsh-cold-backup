@@ -82,6 +82,11 @@ window.__ModuleLoader__.load({
         reasonCommandFailed: '状态命令退出码为 {code}',
         reasonUnconfigured: '未配置任何备份源',
         reasonStatusJsonFailed: '配置的 JSON 状态命令没有给出可解析的结果（回落不到别的来源）',
+        reasonEngineMissing: '找不到 cold-backup 引擎（本包会随插件一起装；也可 npm i -g cold-backup）',
+        engine: '引擎',
+        engineFromDependency: '插件自带的依赖 {version}',
+        engineFromPath: 'PATH 上的 {path}',
+        engineFromConfig: '你在设置里配置的命令',
         detail: '冷备明细',
         detailIntro: '来自备份引擎的 cold-backup.status/1 文档（与 macOS 面板同一份判定）。',
         detailCounts: '仓库 {repos} · 快照 {snapshots} · 配置 {configs} · 有问题 {problems} · 云盘残留 {orphans}',
@@ -128,6 +133,11 @@ window.__ModuleLoader__.load({
         reasonCommandFailed: 'The status command exited with code {code}',
         reasonUnconfigured: 'No backup source is configured',
         reasonStatusJsonFailed: 'The configured JSON status command did not return a parsable document',
+        reasonEngineMissing: 'No cold-backup engine found (this package ships one as a dependency; `npm i -g cold-backup` works too)',
+        engine: 'Engine',
+        engineFromDependency: 'bundled dependency {version}',
+        engineFromPath: '{path} on PATH',
+        engineFromConfig: 'the command configured here',
         detail: 'Backup detail',
         detailIntro: "From the backup engine's cold-backup.status/1 document — the same verdict the macOS panel shows.",
         detailCounts: 'repos {repos} · snapshots {snapshots} · configs {configs} · problems {problems} · orphans {orphans}',
@@ -226,8 +236,21 @@ window.__ModuleLoader__.load({
         case 'command-failed': return format(t, 'reasonCommandFailed', { code: reason.exitCode ?? '?' })
         case 'unconfigured': return t('reasonUnconfigured')
         case 'status-json-failed': return t('reasonStatusJsonFailed')
+        case 'engine-missing': return t('reasonEngineMissing')
         default: return null
       }
+    }
+
+    /** Where the engine came from — the panel states it, and the acceptance test asserts it. */
+    function engineText(t, data) {
+      if (data.engineSource === 'dependency') {
+        return format(t, 'engineFromDependency', { version: data.engineVersion ?? '?' })
+      }
+      if (data.engineSource === 'path') {
+        return format(t, 'engineFromPath', { path: data.enginePath ?? 'cold-backup' })
+      }
+      if (data.engineSource === 'config') return t('engineFromConfig')
+      return '—'
     }
 
     function stamp(value) {
@@ -364,6 +387,14 @@ window.__ModuleLoader__.load({
           jsxs('div', {
             className: 'dshBackupRows',
             children: [
+              // Which engine answered, and where it came from. v2.0 ships one as a dependency, so
+              // this is also how an operator sees "the bundled copy is in use" vs "your PATH one".
+              data?.engineSource
+                ? jsx(Row, {
+                    label: t('engine'),
+                    children: jsx('span', { className: 'dshBackupMono', children: engineText(t, data) }),
+                  }, 'engine')
+                : null,
               jsx(Row, {
                 label: t('launchd'),
                 children: data?.launchd
