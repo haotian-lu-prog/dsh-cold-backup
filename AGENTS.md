@@ -38,3 +38,4 @@ Host 半侧读状态文件 / `launchctl` / 状态命令，Client 半侧画面板
 - `cordis.patch.yml` — profile patch 入口行
 - `test/plugin.test.js` — `node --test` 套件
 - `docs/decisions.md` / `docs/evidence/` — 决策与验证证据
+- `docs/plan-2.0.md` — v2.0 实施计划（第 1 步＝引擎并入插件；含可执行验收与回滚）

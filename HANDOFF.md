@@ -4,11 +4,15 @@
 
 ## 当前写者
 
-- 工具：（空 —— 2026-10-02 DSH 会话已收工：**改名 `dsh-dev-backup` → `dsh-cold-backup` 已完成并发布**；
-  市场 PR #6410 的 CI 三项全绿，等维护者评审）
+- 工具：（空 —— 2026-10-03 DSH 会话已收工：**v2.0 已定案，实施未开工**）
 - 分支：main
 - 开始时间：—
-- 本轮：**改名** —— 插件 `dsh-dev-backup` → **`dsh-cold-backup`**，与引擎 CLI
+- 本轮：**v2.0 定案**（插件从「只读监视器」升级为「自带引擎 + 可选动作」）。落两份文档：
+  ① `docs/decisions.md` 新增一条正式记录 —— 动作边界（四条已定）、安全模型（通道 / 信任判据 /
+  威胁模型 / 前提）、进度契约（含「为什么不能从日志画进度」的实测证据）；
+  ② `docs/plan-2.0.md`（新文件）—— 第 1 步「引擎并入插件」的实施清单、可执行验收、回滚与风险。
+  **本轮不动 `index.js` / `client.js`**：实施是下一步的事。
+- 上一轮：**改名** —— 插件 `dsh-dev-backup` → **`dsh-cold-backup`**，与引擎 CLI
   `dev-backup` → **`cold-backup`** 同步：包名、Cordis 入口 id、路由 `/dsh-cold-backup/status`、
   默认路径 `~/Library/Logs/cold-backup/*`、JSON 契约前缀 `cold-backup.status/` 全部换成新名，
   **不留旧名兼容**。旧 npm 包 deprecate、GitHub 仓库改名（旧 URL 自动重定向）、市场条目跟着换。
@@ -189,6 +193,17 @@
 
 ## 下一步
 
+- [ ] **（v2.0 第 1 步，已定案）把引擎并入插件** —— 装一个包就带引擎，不再需要
+      `npm i -g cold-backup`。实施清单、验收 A1–A7、回滚与风险见 [`docs/plan-2.0.md`](docs/plan-2.0.md)。
+      **未开工**；本包目前**零运行时依赖**的现状保持不变，直到开工。
+- [ ] **（v2.0 第 2 步，已定案待排期）动作层** —— POST + 信任判据（照抄
+      `dsh-archived/lib/host/trust.js`）、T1/T2 默认开、T3（`--verify --fix` /
+      `--prune-orphans --apply`）进 UI 但**默认关 + 二次确认**、进度契约（引擎
+      `COLD_BACKUP_PROGRESS_FILE` + 插件侧加权进度条）、README / README.en / 市场条目**同版本**改、
+      版本 **2.0**。**硬门槛**：引擎先发一版含 `97d5ab2`（仅大小写改名的残留误报修复）——
+      否则 T3 的 `--apply` 有删活目录的风险。
+      决策与依据：`docs/decisions.md` 的 2026-10-03 条目（含今天的实测证据：104 秒 / 日志无分段 /
+      SIGTERM 干净释放锁 / 两个先例插件的信任判据原文）。
 - [x] ~~**（改名后新增，优先）给新包名 `dsh-cold-backup` 配 trusted publishing**~~ → **2026-10-03 已配好并核对**：
   用户用网页配好两份，`npm trust list`（经 2FA）读回来是
   `type: github / file: publish.yml / repository: haotian-lu-prog/dsh-cold-backup /
