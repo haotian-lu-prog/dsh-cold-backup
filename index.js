@@ -17,11 +17,13 @@
 import { execFile } from 'node:child_process'
 import { readFile, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { promisify } from 'node:util'
 import z from '@deepseek-ai/schemastery'
 
+import { ACTION_IDS, createJobRunner } from './actions.js'
 import { resolveEngine } from './engine.js'
+import { refusalReasons, trustReport } from './trust.js'
 
 export const name = 'dsh-cold-backup'
 export const inject = ['webServer']
@@ -31,6 +33,10 @@ export const ENTRY_ID = 'dsh-cold-backup'
 
 /** Route the Client half polls. Distinct from any shipped route. */
 export const STATUS_PATH = '/dsh-cold-backup/status'
+/** Action routes (v2.0). POST only, and guarded by `trust.js`; the read routes above stay open. */
+export const ACTION_PATH = '/dsh-cold-backup/action'
+export const CANCEL_PATH = '/dsh-cold-backup/cancel'
+export const JOB_PATH = '/dsh-cold-backup/job'
 
 const execFileAsync = promisify(execFile)
 
@@ -67,6 +73,12 @@ export const Config = z.object({
     .description('Use the cold-backup engine this package depends on (v2.0+), with a fallback to '
       + '`cold-backup` on PATH. Turn off to keep the plugin strictly passive: it then reads only the '
       + 'file / launchd sources below and starts no process at all.'),
+  allowActions: z.boolean().default(true).volatile()
+    .description('Allow the panel to start engine runs (backup / verify / daily). Turn off to keep '
+      + 'this plugin strictly read-only: the action routes then refuse everything with 403.'),
+  allowDestructive: z.boolean().default(false).volatile()
+    .description('Also allow the two destructive actions (verify --fix, prune-orphans --apply). Off '
+      + 'by default: they delete artifacts, and the panel asks for a second confirmation on top.'),
   staleAfterHours: z.natural().default(36).volatile()
     .description('A last success older than this many hours is reported as stale.'),
   refreshSeconds: z.natural().min(5).max(3600).default(30).volatile()
@@ -504,6 +516,8 @@ export async function collectStatus(config, deps = {}) {
       statusCommand: config.statusCommand,
       statusJsonCommand: config.statusJsonCommand,
       bundledEngine,
+      allowActions: config.allowActions !== false,
+      allowDestructive: config.allowDestructive === true,
       staleAfterHours: config.staleAfterHours,
       refreshSeconds: config.refreshSeconds,
     },
@@ -525,23 +539,74 @@ function readConfig(config) {
     statusCommand: readField(config.statusCommand, ''),
     statusJsonCommand: readField(config.statusJsonCommand, ''),
     bundledEngine: readField(config.bundledEngine, true),
+    allowActions: readField(config.allowActions, true) !== false,
+    allowDestructive: readField(config.allowDestructive, false) === true,
     staleAfterHours: readField(config.staleAfterHours, 36),
     refreshSeconds: readField(config.refreshSeconds, 30),
   }
 }
 
-/** Mount the status route for this Harness process. */
+/**
+ * Where per-job progress files go: next to the engine's own status files, so a custom log directory
+ * is honoured. `null` when there is nothing to derive it from — the runner then runs without a
+ * progress file and the panel shows an indeterminate bar instead of a made-up percentage.
+ */
+export function progressDirectory(config) {
+  const freshness = expandHome(readField(config?.freshnessFile, DEFAULT_FRESHNESS_FILE))
+  return freshness ? join(dirname(freshness), 'progress') : null
+}
+
+/** Read a small JSON body. Capped: an action request carries an id and nothing else. */
+async function readJsonBody(request, limit = 4096) {
+  let size = 0
+  const chunks = []
+  for await (const chunk of request) {
+    size += chunk.length
+    if (size > limit) return null
+    chunks.push(chunk)
+  }
+  if (chunks.length === 0) return {}
+  try {
+    return JSON.parse(Buffer.concat(chunks).toString('utf8'))
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Mount the read routes and (v2.0) the action routes for this Harness process.
+ *
+ * `/status` and `/job` stay open on purpose — read-only, polled by the panel, and revealing nothing
+ * a local process could not read itself. Everything that starts or stops work is a **POST behind
+ * `trust.js`**; the security model and the threat it does (and does not) cover are in
+ * `docs/decisions.md`.
+ */
 export function apply(ctx, config) {
   // Config stays on the generated form (the schema carries descriptions), so the Client half
   // is purely the live status panel — the two never show the same fields twice.
   ctx.effect(() => {
-    const dispose = ctx.webServer.register({
+    const runner = createJobRunner({
+      resolveEngine: () => resolveEngine(),
+      progressDir: () => progressDirectory(readConfig(config)),
+    })
+
+    const sendJson = (res, statusCode, body) => {
+      res.writeHead(statusCode, {
+        'content-type': 'application/json; charset=utf-8',
+        'cache-control': 'no-store',
+      })
+      res.end(JSON.stringify(body))
+    }
+
+    const disposers = []
+
+    // ── read: the status snapshot ────────────────────────────────────────────────────────────
+    disposers.push(ctx.webServer.register({
       kind: 'exact',
       path: STATUS_PATH,
       handler: async (req, res) => {
         if (req.method !== 'GET' && req.method !== 'HEAD') {
-          res.writeHead(405, { 'content-type': 'application/json; charset=utf-8' })
-          res.end(JSON.stringify({ error: 'method-not-allowed' }))
+          sendJson(res, 405, { error: 'method-not-allowed' })
           return
         }
         let body
@@ -552,8 +617,7 @@ export function apply(ctx, config) {
           // undebuggable from the browser, where the user actually sees it.
           const detail = String(error?.message ?? error)
           ctx.logger.warn(`dsh-cold-backup: status collection failed: ${detail}`)
-          res.writeHead(500, { 'content-type': 'application/json; charset=utf-8' })
-          res.end(JSON.stringify({ error: 'collection-failed', detail }))
+          sendJson(res, 500, { error: 'collection-failed', detail })
           return
         }
         res.writeHead(200, {
@@ -562,7 +626,93 @@ export function apply(ctx, config) {
         })
         res.end(req.method === 'HEAD' ? undefined : JSON.stringify(body))
       },
-    })
-    return () => { dispose() }
+    }))
+
+    // ── read: the running (or last) job, including the engine's own progress ─────────────────
+    disposers.push(ctx.webServer.register({
+      kind: 'exact',
+      path: JOB_PATH,
+      handler: async (req, res) => {
+        if (req.method !== 'GET' && req.method !== 'HEAD') {
+          sendJson(res, 405, { error: 'method-not-allowed' })
+          return
+        }
+        let job = null
+        try {
+          job = await runner.status()
+        } catch (error) {
+          ctx.logger.warn(`dsh-cold-backup: job status failed: ${String(error?.message ?? error)}`)
+        }
+        sendJson(res, 200, { job })
+      },
+    }))
+
+    // ── write: start one action ──────────────────────────────────────────────────────────────
+    disposers.push(ctx.webServer.register({
+      kind: 'exact',
+      path: ACTION_PATH,
+      handler: async (req, res) => {
+        if (req.method !== 'POST') {
+          sendJson(res, 405, { error: 'method-not-allowed', allow: 'POST' })
+          return
+        }
+        const report = trustReport(req)
+        if (!report.trusted) {
+          // Refuse with the evidence: this is exactly the failure that was invisible for a whole
+          // round in the plugin this model was copied from.
+          sendJson(res, 403, { error: 'untrusted-request', reasons: refusalReasons(report) })
+          return
+        }
+        const settings = readConfig(config)
+        if (settings.allowActions !== true) {
+          sendJson(res, 403, { error: 'actions-disabled' })
+          return
+        }
+        const body = await readJsonBody(req)
+        if (body === null || typeof body.action !== 'string') {
+          sendJson(res, 400, { error: 'invalid-body', allowed: ACTION_IDS })
+          return
+        }
+        const result = await runner.start(body.action, {
+          allowDestructive: settings.allowDestructive === true,
+        })
+        if (result?.error) {
+          const statusCode = result.error === 'busy' ? 409
+            : result.error === 'unknown-action' ? 400
+              : result.error === 'engine-missing' ? 503
+                : 403
+          sendJson(res, statusCode, result)
+          return
+        }
+        ctx.logger.info?.(`dsh-cold-backup: started ${body.action} as ${result.job?.id ?? '?'}`)
+        sendJson(res, 202, result)
+      },
+    }))
+
+    // ── write: cancel the running job ────────────────────────────────────────────────────────
+    disposers.push(ctx.webServer.register({
+      kind: 'exact',
+      path: CANCEL_PATH,
+      handler: async (req, res) => {
+        if (req.method !== 'POST') {
+          sendJson(res, 405, { error: 'method-not-allowed', allow: 'POST' })
+          return
+        }
+        const report = trustReport(req)
+        if (!report.trusted) {
+          sendJson(res, 403, { error: 'untrusted-request', reasons: refusalReasons(report) })
+          return
+        }
+        const cancelled = runner.cancel()
+        sendJson(res, cancelled ? 200 : 409, { cancelled })
+      },
+    }))
+
+    return () => {
+      // A Harness shutdown must not leave a backup holding the engine lock: SIGTERM runs the
+      // engine's EXIT trap, which releases it (measured — 0 s, exit code 143).
+      void runner.dispose()
+      for (const dispose of disposers) dispose()
+    }
   })
 }

@@ -44,6 +44,14 @@ window.__ModuleLoader__.load({
         .dshBackupDetailMark{flex:none;width:12px;text-align:center;color:var(--dsw-alias-label-secondary)}
         .dshBackupDetailLabel{flex:none;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--dsw-font-family-mono,ui-monospace,SFMono-Regular,Menlo,monospace)}
         .dshBackupDetailText{min-width:0;flex:1;color:var(--dsw-alias-label-secondary);word-break:break-word}
+        .dshBackupActions{flex-wrap:wrap}
+        .dshBackupBar{position:relative;height:8px;border-radius:999px;background:var(--dsw-alias-bg-layer-2);overflow:hidden}
+        .dshBackupBarFill{height:100%;border-radius:999px;background:var(--dsw-alias-brand-primary,#4d6bfe);transition:width .4s ease}
+        .dshBackupBar[data-indeterminate=true] .dshBackupBarFill{width:40%;animation:dshBackupSweep 1.4s ease-in-out infinite}
+        @keyframes dshBackupSweep{0%{transform:translateX(-100%)}100%{transform:translateX(250%)}}
+        .dshBackupButton[data-destructive=true]{border-color:var(--dsw-alias-state-danger,#ef4444);color:var(--dsw-alias-state-danger,#ef4444)}
+        .dshBackupButton[disabled]{opacity:.5;cursor:default}
+        .dshBackupOutput{margin:0;padding:10px 12px;max-height:220px;overflow:auto;border-radius:10px;background:var(--dsw-alias-bg-layer-2);font-family:var(--dsw-font-family-mono,ui-monospace,SFMono-Regular,Menlo,monospace);font-size:11px;line-height:16px;white-space:pre-wrap;color:var(--dsw-alias-label-secondary)}
       `
       document.head.appendChild(tag)
     }
@@ -87,6 +95,31 @@ window.__ModuleLoader__.load({
         engineFromDependency: '插件自带的依赖 {version}',
         engineFromPath: 'PATH 上的 {path}',
         engineFromConfig: '你在设置里配置的命令',
+        actions: '操作',
+        actionBackup: '跑一次备份',
+        actionVerify: '逐份校验',
+        actionDaily: '每日巡检',
+        actionVerifyFix: '校验并清理损坏产物',
+        actionPrune: '清理云盘残留',
+        actionConfirmHint: '删除类操作：再点一次确认',
+        actionsDisabled: '操作已在设置里关闭（allowActions = false）',
+        actionStarted: '已开始',
+        actionBusy: '正在执行…',
+        actionCancel: '取消',
+        actionCancelling: '正在取消…',
+        actionDone: '上次操作',
+        actionIdle: '空闲',
+        actionRan: '已完成',
+        actionCancelled: '已取消',
+        actionFailed: '失败',
+        progress: '进度',
+        progressApprox: '百分比按阶段加权估算；各阶段的计数是精确的',
+        phaseBackup: '备份',
+        phaseVerify: '校验',
+        phaseStatus: '状态检查',
+        progressCounter: '{done}/{total}',
+        elapsed: '用时 {s} 秒',
+        exitCodeShort: '退出码 {code}',
         detail: '冷备明细',
         detailIntro: '来自备份引擎的 cold-backup.status/1 文档（与 macOS 面板同一份判定）。',
         detailCounts: '仓库 {repos} · 快照 {snapshots} · 配置 {configs} · 有问题 {problems} · 云盘残留 {orphans}',
@@ -138,6 +171,31 @@ window.__ModuleLoader__.load({
         engineFromDependency: 'bundled dependency {version}',
         engineFromPath: '{path} on PATH',
         engineFromConfig: 'the command configured here',
+        actions: 'Actions',
+        actionBackup: 'Run a backup',
+        actionVerify: 'Verify everything',
+        actionDaily: 'Run the daily check',
+        actionVerifyFix: 'Verify and delete corrupt artifacts',
+        actionPrune: 'Prune orphan directories',
+        actionConfirmHint: 'Destructive: click again to confirm',
+        actionsDisabled: 'Actions are turned off in settings (allowActions = false)',
+        actionStarted: 'started',
+        actionBusy: 'Running…',
+        actionCancel: 'Cancel',
+        actionCancelling: 'Cancelling…',
+        actionDone: 'Last action',
+        actionIdle: 'idle',
+        actionRan: 'finished',
+        actionCancelled: 'cancelled',
+        actionFailed: 'failed',
+        progress: 'Progress',
+        progressApprox: 'The percentage weighs phases against each other; the per-phase counters are exact',
+        phaseBackup: 'backup',
+        phaseVerify: 'verify',
+        phaseStatus: 'status check',
+        progressCounter: '{done}/{total}',
+        elapsed: '{s}s elapsed',
+        exitCodeShort: 'exit code {code}',
         detail: 'Backup detail',
         detailIntro: "From the backup engine's cold-backup.status/1 document — the same verdict the macOS panel shows.",
         detailCounts: 'repos {repos} · snapshots {snapshots} · configs {configs} · problems {problems} · orphans {orphans}',
@@ -253,6 +311,47 @@ window.__ModuleLoader__.load({
       return '—'
     }
 
+    /** Human label for one phase key. */
+    function phaseText(t, phase) {
+      if (phase === 'backup') return t('phaseBackup')
+      if (phase === 'verify') return t('phaseVerify')
+      if (phase === 'status') return t('phaseStatus')
+      return ''
+    }
+
+    /**
+     * Per-phase counters. These are the *exact* numbers the engine emitted; the percentage next to
+     * them weighs phases against each other and is an estimate — the panel says so.
+     */
+    function countersText(t, job) {
+      const parts = []
+      const backup = job?.sections?.backup
+      if (backup && backup.total > 0) {
+        parts.push(`${t('phaseBackup')} ${format(t, 'progressCounter', { done: backup.done, total: backup.total })}`)
+      }
+      const verify = job?.sections?.verify
+      if (verify && verify.total > 0) {
+        parts.push(`${t('phaseVerify')} ${format(t, 'progressCounter', { done: verify.done, total: verify.total })}`)
+      }
+      return parts.join(' · ')
+    }
+
+    /** One line describing what the job is doing (or how the last one ended). */
+    function jobLine(t, job) {
+      if (job.running) {
+        const bits = [job.action, t('actionBusy')]
+        if (job.percent !== null && job.percent !== undefined) bits.push(`${job.percent}%`)
+        if (job.phase) bits.push(phaseText(t, job.phase))
+        if (job.current) bits.push(job.current)
+        bits.push(format(t, 'elapsed', { s: Math.round((job.elapsedMs ?? 0) / 1000) }))
+        return bits.join(' · ')
+      }
+      if (job.error) return `${t('actionDone')}: ${job.action} · ${t('actionFailed')} · ${job.error}`
+      if (job.exitCode === 0) return `${t('actionDone')}: ${job.action} · ${t('actionRan')} · ${format(t, 'elapsed', { s: Math.round((job.elapsedMs ?? 0) / 1000) })}`
+      if (job.exitCode === null) return `${t('actionDone')}: ${job.action} · ${t('actionCancelled')}`
+      return `${t('actionDone')}: ${job.action} · ${t('actionFailed')} · ${format(t, 'exitCodeShort', { code: job.exitCode })}`
+    }
+
     function stamp(value) {
       if (!Number.isFinite(value)) return '—'
       const date = new Date(value)
@@ -271,32 +370,111 @@ window.__ModuleLoader__.load({
     }
 
     function ColdBackupSection({ t }) {
-      const [state, setState] = React.useState({ status: 'loading', data: null, error: null })
+      const [state, setState] = React.useState({ status: 'loading', data: null, job: null, error: null })
+      const [busyAction, setBusyAction] = React.useState(null)
+      const [actionError, setActionError] = React.useState(null)
+      const [confirming, setConfirming] = React.useState(null)
       const timer = React.useRef(null)
 
       const load = React.useCallback(async () => {
         try {
-          const response = await fetch('/dsh-cold-backup/status', { headers: { accept: 'application/json' } })
-          if (!response.ok) throw new Error(`HTTP ${String(response.status)}`)
-          const data = await response.json()
-          setState({ status: 'ready', data, error: null })
+          // The job poll rides along with the status poll: same interval, one panel, and the
+          // progress bar then advances at `refreshSeconds` without a second timer of its own.
+          const [statusResponse, jobResponse] = await Promise.all([
+            fetch('/dsh-cold-backup/status', { headers: { accept: 'application/json' } }),
+            fetch('/dsh-cold-backup/job', { headers: { accept: 'application/json' } }).catch(() => null),
+          ])
+          if (!statusResponse.ok) throw new Error(`HTTP ${String(statusResponse.status)}`)
+          const data = await statusResponse.json()
+          let job = null
+          if (jobResponse && jobResponse.ok) {
+            try {
+              job = (await jobResponse.json()).job ?? null
+            } catch {
+              job = null
+            }
+          }
+          setState({ status: 'ready', data, job, error: null })
         } catch (error) {
-          setState(previous => ({ status: 'error', data: previous.data, error: String(error?.message ?? error) }))
+          setState(previous => ({
+            status: 'error',
+            data: previous.data,
+            job: previous.job ?? null,
+            error: String(error?.message ?? error),
+          }))
         }
       }, [])
+
+      // The marker header is what the Host's trust check accepts from this page: it is a
+      // same-origin fetch, but the header is what survives every pipeline (see `trust.js`).
+      const ACTION_HEADERS = { 'content-type': 'application/json', 'x-dsh-cold-backup': '1' }
+
+      const act = React.useCallback(async actionId => {
+        setConfirming(null)
+        setBusyAction(actionId)
+        setActionError(null)
+        try {
+          const response = await fetch('/dsh-cold-backup/action', {
+            method: 'POST',
+            headers: ACTION_HEADERS,
+            body: JSON.stringify({ action: actionId }),
+          })
+          const payload = await response.json().catch(() => ({}))
+          if (!response.ok) {
+            const reasons = Array.isArray(payload.reasons) ? ` (${payload.reasons.join(', ')})` : ''
+            setActionError(`${payload.error ?? `HTTP ${String(response.status)}`}${reasons}`)
+          }
+        } catch (error) {
+          setActionError(String(error?.message ?? error))
+        } finally {
+          setBusyAction(null)
+          void load()
+        }
+      }, [load])
+
+      const cancelJob = React.useCallback(async () => {
+        setBusyAction('cancel')
+        try {
+          await fetch('/dsh-cold-backup/cancel', { method: 'POST', headers: ACTION_HEADERS })
+        } catch (error) {
+          setActionError(String(error?.message ?? error))
+        } finally {
+          setBusyAction(null)
+          void load()
+        }
+      }, [load])
+
+      /** One action button. Destructive ones take two clicks, and say so in between. */
+      const actionButton = (actionId, labelKey, destructive = false) => jsx('button', {
+        type: 'button',
+        className: 'dshBackupButton',
+        'data-destructive': destructive ? 'true' : undefined,
+        disabled: busyAction !== null,
+        onClick: () => {
+          if (destructive && confirming !== actionId) {
+            setConfirming(actionId)
+            return
+          }
+          void act(actionId)
+        },
+        children: confirming === actionId ? t('actionConfirmHint') : t(labelKey),
+      }, actionId)
 
       React.useEffect(() => {
         let cancelled = false
         const tick = () => { if (!cancelled) void load() }
         tick()
         const seconds = Number(state.data?.config?.refreshSeconds)
-        const interval = Number.isFinite(seconds) && seconds >= 5 ? seconds : 30
+        const base = Number.isFinite(seconds) && seconds >= 5 ? seconds : 30
+        // A running job is polled fast enough for the bar to actually move; the idle panel keeps
+        // the configured (cheap) interval.
+        const interval = state.job?.running ? 2 : base
         timer.current = setInterval(tick, interval * 1000)
         return () => {
           cancelled = true
           if (timer.current !== null) clearInterval(timer.current)
         }
-      }, [load, state.data?.config?.refreshSeconds])
+      }, [load, state.data?.config?.refreshSeconds, state.job?.running])
 
       const data = state.data
       const reasons = (data?.reasons ?? []).map(reason => reasonText(t, reason)).filter(Boolean)
@@ -345,6 +523,70 @@ window.__ModuleLoader__.load({
           data && (data.level === 'unknown'
             || (data.explicitlyConfigured === false && data.freshness?.missing === true))
             ? jsx('p', { className: 'dshBackupIntro', children: t('notConfigured') })
+            : null,
+
+          // 操作区（v2.0）：T1/T2 默认开，T3 要 allowDestructive 才出现，而且要点两次。
+          // 关掉 allowActions 就整块消失，插件回到纯只读。
+          jsxs('div', {
+            className: 'dshBackupRows',
+            children: [
+              jsx('div', { className: 'dshBackupLabel', children: t('actions') }),
+              data?.config?.allowActions === false
+                ? jsx('p', { className: 'dshBackupMeta', children: t('actionsDisabled') })
+                : jsxs('div', {
+                    className: 'dshBackupActions',
+                    children: [
+                      actionButton('backup', 'actionBackup'),
+                      actionButton('verify', 'actionVerify'),
+                      actionButton('daily', 'actionDaily'),
+                      data?.config?.allowDestructive === true ? actionButton('verifyFix', 'actionVerifyFix', true) : null,
+                      data?.config?.allowDestructive === true ? actionButton('prune', 'actionPrune', true) : null,
+                    ],
+                  }),
+              actionError ? jsx('p', { className: 'dshBackupMeta', children: actionError }) : null,
+            ],
+          }),
+
+          // 进度区：数字全部来自引擎自己写的进度文件（COLD_BACKUP_PROGRESS_FILE）。引擎太旧、
+          // 没写进度时 percent 是 null，这时画「流动条」而不是编一个百分比出来。
+          state.job
+            ? jsxs('div', {
+                className: 'dshBackupRows',
+                children: [
+                  jsx('div', { className: 'dshBackupLabel', children: t('progress') }),
+                  state.job.running
+                    ? jsx('div', {
+                        className: 'dshBackupBar',
+                        role: 'progressbar',
+                        'data-indeterminate': state.job.percent === null ? 'true' : 'false',
+                        'aria-valuenow': state.job.percent === null ? undefined : state.job.percent,
+                        'aria-valuemin': 0,
+                        'aria-valuemax': 100,
+                        children: jsx('div', {
+                          className: 'dshBackupBarFill',
+                          style: state.job.percent === null ? undefined : { width: `${state.job.percent}%` },
+                        }),
+                      })
+                    : null,
+                  jsx('p', { className: 'dshBackupMeta', children: jobLine(t, state.job) }),
+                  countersText(t, state.job) ? jsx('p', { className: 'dshBackupMeta', children: countersText(t, state.job) }) : null,
+                  state.job.running
+                    ? jsx('p', { className: 'dshBackupMeta', children: t('progressApprox') })
+                    : null,
+                  state.job.running
+                    ? jsx('button', {
+                        type: 'button',
+                        className: 'dshBackupButton',
+                        disabled: busyAction !== null,
+                        onClick: () => { void cancelJob() },
+                        children: busyAction === 'cancel' ? t('actionCancelling') : t('actionCancel'),
+                      })
+                    : null,
+                  state.job.outputTail
+                    ? jsx('pre', { className: 'dshBackupOutput', children: state.job.outputTail })
+                    : null,
+                ],
+              })
             : null,
 
           // 明细：只有配置了 JSON 源才出现（陌生人装了不会看到空壳）。判定来自脚本，

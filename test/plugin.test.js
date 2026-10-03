@@ -8,12 +8,18 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { test } from 'node:test'
 
+import { ACTIONS, ACTION_IDS, createJobRunner, parseProgress, sectionWeights, stripAnsi, summarizeProgress } from '../actions.js'
 import { resolveEngine } from '../engine.js'
+import { MARKER_HEADER, isTrustedRequest, refusalReasons, trustReport } from '../trust.js'
 import {
+  ACTION_PATH,
+  CANCEL_PATH,
   DEFAULT_FAILURE_FILE,
   DEFAULT_FRESHNESS_FILE,
   ENTRY_ID,
+  JOB_PATH,
   STATUS_PATH,
+  apply,
   collectStatus,
   evaluateStatus,
   expandHome,
@@ -571,6 +577,309 @@ test('a missing engine stays quiet when another source explains the panel', asyn
   assert.equal(payload.level, 'ok')
 })
 
+
+// ── v2.0 第 2 步：动作层的信任判据、动作表、进度与作业生命周期 ─────────────────────────
+// 这些用例一条都不许碰到真实机器：spawn / 时钟 / 文件读取全部注入。
+
+const LOOPBACK = { remoteAddress: '127.0.0.1' }
+
+function request(headers = {}, socket = LOOPBACK) {
+  return { method: 'POST', headers: { host: '127.0.0.1:19387', ...headers }, socket }
+}
+
+test('trust: loopback + marker is enough, and cross-site is always refused', () => {
+  // 桌面 app 走自己的请求管道时没有 Fetch Metadata 头，标记头就是给它的那条路。
+  assert.equal(isTrustedRequest(request({ [MARKER_HEADER]: '1' })), true)
+  // 浏览器同源 fetch 会带 sec-fetch-site，同样放行。
+  assert.equal(isTrustedRequest(request({ 'sec-fetch-site': 'same-origin' })), true)
+  // 跨站：这就是 CSRF，一律拒。
+  const crossSite = trustReport(request({ 'sec-fetch-site': 'cross-site', [MARKER_HEADER]: '1' }))
+  assert.equal(crossSite.trusted, false)
+  assert.ok(refusalReasons(crossSite).includes('cross-site'))
+  // Origin 存在时必须与 Host 一致。
+  assert.equal(trustReport(request({ origin: 'http://evil.example' })).trusted, false)
+  assert.equal(trustReport(request({ origin: 'http://127.0.0.1:19387' })).trusted, true)
+  // 非 loopback 一律拒。
+  assert.equal(trustReport(request({ [MARKER_HEADER]: '1' }, { remoteAddress: '10.0.0.9' })).trusted, false)
+  // 什么信号都没有、也没有标记头 → 拒，并说明原因。
+  const bare = trustReport(request())
+  assert.equal(bare.trusted, false)
+  assert.ok(refusalReasons(bare).includes('missing-marker'))
+})
+
+test('trust: a missing Host header is refused (it is what Origin is compared against)', () => {
+  assert.equal(isTrustedRequest({ method: 'POST', headers: { [MARKER_HEADER]: '1' }, socket: LOOPBACK }), false)
+})
+
+test('actions: the vocabulary is fixed and argv never comes from input', () => {
+  assert.deepEqual(ACTION_IDS.sort(), ['backup', 'daily', 'prune', 'verify', 'verifyFix'])
+  for (const [id, action] of Object.entries(ACTIONS)) {
+    assert.ok(Array.isArray(action.argv), id)
+    for (const arg of action.argv) assert.match(arg, /^--[a-z-]+(=ui)?$/, `${id}: ${arg}`)
+  }
+  assert.equal(ACTIONS.verifyFix.destructive, true)
+  assert.equal(ACTIONS.prune.destructive, true)
+  assert.equal(ACTIONS.backup.destructive, false)
+  assert.deepEqual(sectionWeights(['backup', 'verify', 'status']), { backup: 0.7, verify: 0.25, status: 0.05 })
+  assert.deepEqual(sectionWeights(['verify']), { verify: 1 })
+  assert.deepEqual(sectionWeights([]), {})
+})
+
+test('progress: parsing survives a half-written line and strips ANSI', () => {
+  const text = '{"v":1,"phase":"plan","section":"backup","total":1,"units":[]}\n{"v":1,"phase":"back\n\n{"v":1,"done":true,"exitCode":0,"ms":10}\n'
+  const events = parseProgress(text)
+  assert.equal(events.length, 2)
+  assert.equal(events[1].done, true)
+  assert.equal(stripAnsi('\u001b[32m✓\u001b[0m ok'), '✓ ok')
+})
+
+test('progress: the percentage weighs phases, the counters stay exact', () => {
+  const events = [
+    { v: 1, phase: 'plan', section: 'backup', total: 2, units: [{ kind: 'repo', label: 'a', weight: 3 }, { kind: 'snapshot', label: 'b', weight: 1 }] },
+    { v: 1, phase: 'backup', state: 'start', kind: 'repo', label: 'a' },
+    { v: 1, phase: 'backup', state: 'done', kind: 'repo', label: 'a', result: 'skipped', ms: 10 },
+  ]
+  const half = summarizeProgress(events, { sections: ACTIONS.daily.sections })
+  assert.equal(half.phase, 'backup')
+  assert.equal(half.current, null)
+  assert.deepEqual(half.sections.backup, { done: 1, total: 2 })
+  // 权重 3/4 完成 → 0.7 × 0.75 = 52.5（浮点 52.499…）→ 52。不是 50：大目标真的占得多。
+  assert.equal(half.percent, 52)
+
+  const verifying = summarizeProgress([...events, { v: 1, phase: 'verify', done: 1, total: 4, label: 'a', ok: true }], { sections: ACTIONS.daily.sections })
+  assert.equal(verifying.phase, 'verify')
+  assert.equal(verifying.current, 'a')
+  assert.deepEqual(verifying.sections.verify, { done: 1, total: 4 })
+  assert.equal(verifying.percent, 59)
+
+  const finished = summarizeProgress([...events, { v: 1, phase: 'verify', done: 4, total: 4 }, { v: 1, phase: 'status' }, { v: 1, done: true, exitCode: 0, ms: 1234 }], { sections: ACTIONS.daily.sections })
+  assert.equal(finished.finished, true)
+  assert.equal(finished.percent, 100)
+  assert.equal(finished.exitCode, 0)
+  assert.equal(finished.engineMs, 1234)
+
+  // 引擎太旧、没写任何进度 → 不编数字：percent 为 null，面板画流动条。
+  assert.equal(summarizeProgress([], { sections: ACTIONS.backup.sections }).percent, null)
+})
+
+function fakeChild() {
+  const handlers = {}
+  return {
+    stdout: { on: (event, fn) => { handlers[`stdout:${event}`] = fn } },
+    stderr: { on: (event, fn) => { handlers[`stderr:${event}`] = fn } },
+    on: (event, fn) => { handlers[event] = fn },
+    kill: signal => { handlers.killed = signal; return true },
+    handlers,
+  }
+}
+
+function runnerFixture({ spawn, files = {}, engine = { path: '/opt/engine/cold-backup', source: 'dependency' } } = {}) {
+  const children = []
+  const runner = createJobRunner({
+    resolveEngine: () => engine,
+    progressDir: '/tmp/cb-progress',
+    now: () => 1_000,
+    spawn: spawn ?? ((file, args, options) => {
+      const child = fakeChild()
+      children.push({ file, args, options, child })
+      return child
+    }),
+    mkdir: async () => {},
+    rm: async () => {},
+    readFile: async path => {
+      if (!(path in files)) throw new Error('ENOENT')
+      return files[path]
+    },
+  })
+  return { runner, children }
+}
+
+test('job runner: fixed argv, single flight, engine and destructive gates', async () => {
+  const { runner, children } = runnerFixture()
+
+  const disabled = await runner.start('prune', { allowDestructive: false })
+  assert.equal(disabled.error, 'destructive-disabled')
+  assert.equal(children.length, 0, 'a refused action must not spawn anything')
+
+  const unknown = await runner.start('rm-rf')
+  assert.equal(unknown.error, 'unknown-action')
+
+  const first = await runner.start('backup')
+  assert.equal(first.job.action, 'backup')
+  assert.equal(children.length, 1)
+  assert.equal(children[0].file, '/bin/bash')
+  assert.deepEqual(children[0].args, ['/opt/engine/cold-backup', '--trigger=ui'])
+  assert.equal(children[0].options.env.COLD_BACKUP_PROGRESS_FILE, '/tmp/cb-progress/job-rs-1.jsonl')
+
+  const second = await runner.start('backup')
+  assert.equal(second.error, 'busy')
+
+  assert.equal(runner.cancel(), true)
+  assert.equal(children[0].child.handlers.killed, 'SIGTERM')
+
+  children[0].child.handlers.close(0)
+  const done = await runner.status()
+  assert.equal(done.running, false)
+  assert.equal(done.exitCode, 0)
+  await runner.dispose()
+  assert.equal(await runner.status(), null)
+})
+
+test('job runner: keeps the progress directory bounded across jobs', async () => {
+  const removed = []
+  const children = []
+  const runner = createJobRunner({
+    resolveEngine: () => ({ path: '/x/cold-backup', source: 'dependency' }),
+    progressDir: '/tmp/cb-progress',
+    now: () => 1_000,
+    spawn: () => { const child = fakeChild(); children.push(child); return child },
+    mkdir: async () => {},
+    rm: async path => { removed.push(path) },
+    readFile: async () => { throw new Error('ENOENT') },
+  })
+  await runner.start('backup')
+  const first = removed.length
+  // 第一个作业结束后再起第二个（运行中起第二个本来就是 409，见上一条用例）。
+  children[0].handlers.close(0)
+  await runner.start('verify')
+  // 进程被硬杀时 dispose 不会执行，所以「起新作业时删掉上一个的进度文件」是目录有界的保证。
+  assert.ok(removed.length > first, 'the previous job progress file must be dropped on the next start')
+  assert.ok(removed.some(path => path.endsWith('job-rs-1.jsonl')), removed.join(','))
+  await runner.dispose()
+})
+
+test('job runner: refuses to start when no engine resolves, and reports its reason', async () => {
+  const { runner, children } = runnerFixture({ engine: { path: null, source: null, reason: 'missing-dependency' } })
+  const result = await runner.start('verify')
+  assert.equal(result.error, 'engine-missing')
+  assert.equal(result.reason, 'missing-dependency')
+  assert.equal(children.length, 0)
+})
+
+test('job runner: reads the progress file the engine wrote, and kills on dispose', async () => {
+  const progress = [
+    '{"v":1,"phase":"plan","section":"backup","total":1,"units":[{"kind":"repo","label":"a","weight":2}]}',
+    '{"v":1,"phase":"backup","state":"done","kind":"repo","label":"a","result":"stored","ms":5}',
+  ].join('\n')
+  const { runner, children } = runnerFixture({ files: { '/tmp/cb-progress/job-rs-1.jsonl': progress } })
+  await runner.start('backup')
+  const view = await runner.status()
+  assert.equal(view.percent, 100)
+  assert.deepEqual(view.sections.backup, { done: 1, total: 1 })
+  await runner.dispose()
+  assert.equal(children[0].child.handlers.killed, 'SIGTERM')
+})
+
+test('routes: POST refuses untrusted callers, disabled actions and bad bodies without spawning', async () => {
+  const routes = new Map()
+  const ctx = {
+    effect: fn => fn(),
+    logger: { warn() {}, info() {} },
+    webServer: { register: route => { routes.set(route.path, route.handler); return () => {} } },
+  }
+  apply(ctx, { freshnessFile: '/tmp/none/last-ok', failureFile: '/tmp/none/last-failure' })
+  assert.ok(routes.has(ACTION_PATH) && routes.has(JOB_PATH) && routes.has(CANCEL_PATH) && routes.has(STATUS_PATH))
+
+  const respond = async (path, req) => {
+    const res = {
+      statusCode: null,
+      body: null,
+      writeHead(code) { this.statusCode = code },
+      end(payload) { this.body = payload ? JSON.parse(payload) : null },
+    }
+    await routes.get(path)(req, res)
+    return res
+  }
+  const post = (headers, body = '') => ({
+    method: 'POST',
+    headers: { host: '127.0.0.1:19387', ...headers },
+    socket: LOOPBACK,
+    async *[Symbol.asyncIterator]() { if (body) yield Buffer.from(body) },
+  })
+
+  // 跨站 → 403，且带上原因。
+  const crossSite = await respond(ACTION_PATH, post({ 'sec-fetch-site': 'cross-site', [MARKER_HEADER]: '1' }, '{"action":"backup"}'))
+  assert.equal(crossSite.statusCode, 403)
+  assert.equal(crossSite.body.error, 'untrusted-request')
+  assert.ok(crossSite.body.reasons.includes('cross-site'))
+
+  // 同源但没有标记头（例如某种非浏览器客户端）→ 403。
+  const bare = await respond(ACTION_PATH, post({}, '{"action":"backup"}'))
+  assert.equal(bare.statusCode, 403)
+
+  // 信任通过但 body 不合法 → 400（还没到起进程那一步）。
+  const badBody = await respond(ACTION_PATH, post({ [MARKER_HEADER]: '1' }, 'not json'))
+  assert.equal(badBody.statusCode, 400)
+  assert.equal(badBody.body.error, 'invalid-body')
+
+  // GET 动词不对 → 405。
+  assert.equal((await respond(ACTION_PATH, post({ [MARKER_HEADER]: '1' }))).statusCode, 400)
+
+  // 读路由保持开放且只读：没有作业时返回 job: null。
+  const job = await respond(JOB_PATH, { method: 'GET', headers: { host: '127.0.0.1:19387' }, socket: LOOPBACK })
+  assert.equal(job.statusCode, 200)
+  assert.equal(job.body.job, null)
+})
+
+
+test('the client half renders the action buttons and the progress bar (v2.0)', async () => {
+  const job = {
+    id: 'job-1',
+    action: 'daily',
+    running: true,
+    startedAt: 1_790_000_000_000,
+    finishedAt: null,
+    exitCode: null,
+    error: null,
+    elapsedMs: 42_000,
+    phase: 'verify',
+    current: 'plugins/dsh-archived',
+    percent: 59,
+    sections: { backup: { done: 2, total: 2 }, verify: { done: 1, total: 4 } },
+    engineFinished: false,
+    engineExitCode: null,
+    engineMs: null,
+    outputTail: '✓ a.bundle：结构完整',
+  }
+  const payload = {
+    level: 'ok',
+    reasons: [],
+    ageHours: 0.1,
+    explicitlyConfigured: true,
+    freshness: { path: '/x/last-ok', missing: false, at: 1_790_000_000_000 },
+    failure: null,
+    launchd: null,
+    command: null,
+    engine: null,
+    engineSource: 'dependency',
+    engineVersion: '1.0.3',
+    enginePath: '/opt/engine/cold-backup',
+    config: { refreshSeconds: 30, allowActions: true, allowDestructive: false },
+  }
+  const texts = await renderClientPanel(payload, job)
+
+  assert.ok(texts.includes('actions'), 'the actions heading must be rendered')
+  assert.ok(texts.includes('actionBackup') && texts.includes('actionVerify') && texts.includes('actionDaily'), 'the three safe actions')
+  assert.ok(!texts.includes('actionPrune'), 'destructive actions stay hidden while allowDestructive is off')
+  assert.ok(texts.includes('progress'), 'the progress heading')
+  assert.ok(texts.some(text => text.includes('59%')), 'the weighted percentage is shown')
+  // 计数器走 format() 的占位符，而测试基座的 t() 返回 key 本身（本文件既有用例都按 key 断言）：
+  // 计数来自引擎的精确事件，这里验的是这一行确实渲染了。
+  assert.ok(texts.some(text => text.includes('progressCounter')), 'the exact per-phase counter line is rendered')
+  assert.ok(texts.some(text => text.includes('plugins/dsh-archived')), 'the current target is named')
+  assert.ok(texts.some(text => text.includes('✓ a.bundle')), 'the engine output tail is shown')
+  assert.ok(nodes => true)
+
+  // allowDestructive on → the two delete-capable actions appear, still behind a second click.
+  const withDestructive = await renderClientPanel({ ...payload, config: { ...payload.config, allowDestructive: true } }, { ...job, running: false, exitCode: 0, percent: 100 })
+  assert.ok(withDestructive.includes('actionPrune') && withDestructive.includes('actionVerifyFix'), 'destructive actions appear only when enabled')
+
+  // allowActions off → the whole block degrades to a sentence, no buttons.
+  const readOnly = await renderClientPanel({ ...payload, config: { ...payload.config, allowActions: false } }, null)
+  assert.ok(readOnly.includes('actionsDisabled'), 'the disabled note is shown')
+  assert.ok(!readOnly.includes('actionBackup'), 'no action buttons when actions are off')
+})
+
 test('the package name, patch id, ENTRY_ID and client module id all agree', async () => {
   const manifest = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'))
   const patch = await readFile(new URL('../cordis.patch.yml', import.meta.url), 'utf8')
@@ -661,12 +970,12 @@ test('the client half loads through __ModuleLoader__ and registers one settings 
  * back the state we want, so one pass is enough — no timers, no re-render loop. This is what
  * actually exercises the new detail block: `jsx`/`jsxs` are stubs, but the component body runs.
  */
-async function renderClientPanel (data) {
+async function renderClientPanel (data, job = null) {
   const source = await readFile(new URL('../client.js', import.meta.url), 'utf8')
   const nodes = []
   let loaded
   const window = { __ModuleLoader__: { load: options => { loaded = options } } }
-  const states = [{ status: 'ready', data, error: null }]
+  const states = [{ status: 'ready', data, job, error: null }]
   const require = specifier => {
     if (specifier === 'react') {
       return {

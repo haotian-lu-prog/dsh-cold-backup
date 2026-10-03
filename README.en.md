@@ -39,6 +39,11 @@ in the same second, and `>` would silently hide exactly that case (see `docs/dec
   your own configured command). When no engine resolves it falls back to the generic sources **and
   names the missing engine** instead of pretending everything is fine. Want it strictly passive (no
   resolution, no process ever started)? Turn `bundledEngine` off.
+- **Optional actions (v2.0)** — the panel can start a backup, verify everything, or run the daily
+  check, with a **progress bar** (the percentage weighs phases; the per-phase counters are exact;
+  an older engine that writes no progress gets a moving stripe instead of a made-up number). The two
+  destructive actions (`--verify --fix`, `--prune-orphans --apply`) are **off by default** and take
+  two clicks once enabled. Want it to never touch anything? Turn `allowActions` off.
 - **The Host half uses node builtins only** — the only npm dependencies unrelated to Harness are
   `@deepseek-ai/schemastery` (Config declaration) and the engine package `cold-backup` (a bash
   script; nothing is loaded into the JS runtime).
@@ -105,6 +110,8 @@ apply immediately without a restart:
 | `launchdLabel` | empty | LaunchAgent label to inspect (empty disables it) |
 | `statusCommand` | empty | Optional self-check; exit code 0 is healthy |
 | `statusJsonCommand` | empty | Optional: a command printing a `cold-backup.status/1` document (e.g. `cold-backup --status --json`). When it parses, its verdict drives the panel and its per-target detail is rendered. Left empty, the bundled engine is used instead (highest priority; this is **operator configuration** and is never reused by anything that writes) |
+| `allowActions` | `true` | Let the panel start actions (backup / verify / daily). Off: every action route answers 403 and the plugin is purely read-only |
+| `allowDestructive` | `false` | Also allow the two destructive actions (`--verify --fix`, `--prune-orphans --apply`). Off by default: they delete artifacts, and the UI asks for a second confirmation on top |
 | `bundledEngine` | `true` | Resolve and use the engine this package depends on (falling back to PATH). Turn off to keep the plugin strictly passive: file / launchd sources only, nothing resolved, no process started |
 | `staleAfterHours` | `36` | Older than this many hours is reported as stale |
 | `refreshSeconds` | `30` | Panel polling interval |
@@ -158,8 +165,30 @@ but unusable source is reported as a problem rather than silently ignored.
 
 This plugin is the **UI front-end for a backup scheme, not the backup itself**. The scheme is: a
 scheduled job writes its last success time to a file, appends failures to a log, and optionally runs
-as a launchd job. The plugin only reads those artifacts — it never writes, triggers or deletes
-anything, which is why it is safe to leave running.
+as a launchd job.
+
+**Reading stays read-only, always.** **Writing is optional, since v2.0**: the panel can start a
+backup / verify / daily run (on by default) plus two destructive actions (off by default). To keep
+the plugin incapable of touching anything, turn `allowActions` off — it is then as read-only as 1.x
+and just as safe to leave running.
+
+### Security model for actions (v2.0)
+
+- **Channels**: the read routes (`/status`, `/job`) stay open GETs; **actions are POST-only** on
+  their own routes.
+- **Trust predicate** (the same one `dsh-archived` uses, hardened against a real failure): loopback,
+  `sec-fetch-site: same-origin` when present, `Origin` must match `Host` when present, and a request
+  with no browser signals at all needs the marker header `x-dsh-cold-backup: 1` (that is the Desktop
+  app's own pipeline). Cross-site is always refused — that is the CSRF case.
+- **Commands are constants**: the body carries an action *id*, the id is looked up in a table, and
+  the argv is run **without a shell**; the engine path is resolved by this package and **never comes
+  from a request**. One action at a time (a second caller gets 409).
+- **What it defends, and what it cannot**: it defends against a *web page* reaching `127.0.0.1` and
+  against accidents. It does not — and cannot — defend against a local process of the same user:
+  that process can run `cold-backup` itself. It also assumes Harness listens on loopback only;
+  enable remote access and this model must be re-evaluated.
+- `statusCommand` / `statusJsonCommand` are **operator-configured shell commands**; the action layer
+  **never reuses** them and no request content ever builds a command line.
 
 **The companion backup engine is [`cold-backup`](https://github.com/haotian-lu-prog/cold-backup)**
 (a dependency-free bash CLI for macOS and Linux). Since v2.0 it is a **dependency of this package**,
