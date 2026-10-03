@@ -660,6 +660,12 @@ test('progress: the percentage weighs phases, the counters stay exact', () => {
 
   // 引擎太旧、没写任何进度 → 不编数字：percent 为 null，面板画流动条。
   assert.equal(summarizeProgress([], { sections: ACTIONS.backup.sections }).percent, null)
+
+  // 跑完但**失败**（收尾事件里 exitCode=1）时不能画满：满格配「退出码 1」等于假绿灯。
+  const failed = summarizeProgress([...events, { v: 1, done: true, exitCode: 1, ms: 900 }], { sections: ACTIONS.daily.sections })
+  assert.equal(failed.finished, true)
+  assert.equal(failed.exitCode, 1)
+  assert.equal(failed.percent, 52, 'a failed run keeps the percentage it actually reached')
 })
 
 function fakeChild() {

@@ -143,10 +143,9 @@ export function summarizeProgress(events, options = {}) {
     }
   }
 
-  let percent = null
-  if (finished) {
-    percent = 100
-  } else if (Object.keys(wanted).length > 0) {
+  // The percentage the events so far can prove.
+  let computed = null
+  if (Object.keys(wanted).length > 0) {
     let acc = 0
     let known = false
     for (const [name, weight] of Object.entries(wanted)) {
@@ -167,8 +166,13 @@ export function summarizeProgress(events, options = {}) {
         acc += weight
       }
     }
-    if (known) percent = Math.round(Math.max(0, Math.min(1, acc)) * 100)
+    if (known) computed = Math.round(Math.max(0, Math.min(1, acc)) * 100)
   }
+
+  // A run that ended is 100 % *only if it ended well*. A failed run keeps the percentage it
+  // actually reached — a full bar next to "exit code 1" would read as success, which is exactly
+  // the kind of fake green this plugin refuses elsewhere.
+  const percent = finished && (exitCode === null || exitCode === 0) ? 100 : computed
 
   return { phase, current, percent, sections, finished, exitCode, engineMs }
 }
